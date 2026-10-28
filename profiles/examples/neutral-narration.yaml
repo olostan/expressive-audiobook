@@ -1,0 +1,23 @@
+id: neutral-narration
+narrator_persona: >
+  A clear, unhurried narrator. Steady pace, no theatrical color unless the
+  text itself changes temperature.
+default_delivery_style: ""
+literary_traits:
+  - Prefer an empty style on ordinary sentences.
+  - Preserve the author's wording. Do not explain jokes or metaphors.
+  - Read citations and footnotes plainly, without extra commentary.
+pronunciation_lexicon:
+  - word: Quillan
+    ipa: "/ˈkwɪlən/"
+    note: Invented name used only as a lexicon example.
+character_voices:
+  narrator:
+    voice: Kore
+    voice_type: prebuilt
+verbalize:
+  diagrams: One or two sentences on what the figure shows and why it is here. Start from the caption.
+  formulas: Speak the expression so a listener can reconstruct it. Never read markup aloud.
+  footnotes: Mention a short note. Read a long note only when the sentence is hard to follow without it.
+  citations: Read the name and speak the year as words.
+free_text: ""

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/olostan/pdf-expressive-audiobook/profiles/schema.json",
+  "title": "Style profile",
+  "description": "Injectable literary and voice direction for the text-prep stage. The pipeline does not embed any particular book.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "narrator_persona": {"type": "string"},
+    "default_delivery_style": {
+      "type": "string",
+      "description": "Turn-level style used only as a hint. Empty is the recommended default."
+    },
+    "literary_traits": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "pronunciation_lexicon": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["word", "ipa"],
+        "properties": {
+          "word": {"type": "string"},
+          "ipa": {"type": "string", "description": "IPA spelling, usually wrapped in slashes."},
+          "note": {"type": "string"}
+        }
+      }
+    },
+    "character_voices": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/voice"},
+      "description": "Map of speaker label to voice. Include a narrator entry."
+    },
+    "verbalize": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "diagrams": {"type": "string"},
+        "formulas": {"type": "string"},
+        "footnotes": {"type": "string"},
+        "citations": {"type": "string"}
+      }
+    },
+    "free_text": {
+      "type": "string",
+      "description": "Extra direction. The CLI --style string is appended here at runtime."
+    }
+  },
+  "$defs": {
+    "voice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["voice"],
+      "properties": {
+        "voice": {
+          "type": "string",
+          "description": "Prebuilt name, Extended Voice Library id, voice_ design/replication id, or voicekey_ id."
+        },
+        "voice_type": {
+          "type": "string",
+          "enum": ["prebuilt", "library", "design", "replication"]
+        }
+      }
+    }
+  }
+}
