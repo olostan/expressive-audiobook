@@ -3,16 +3,26 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 
-from .audio import assemble_clips
+from .audio import PcmClip, assemble_clips, load_pcm, write_wav
 from .chunking import chunk_chapter, load_chapter_jsonl, write_chapter_jsonl
 from .config import AppConfig, StyleProfile, load_config
 from .ingest import extract_pdf, load_chapter, load_manifest
 from .models import Chunk, to_jsonable
-from .prep import build_prep_request
+from .prep import (
+    build_prep_request,
+    prepare_chunk_output,
+    schema_errors,
+    validate_prep_output,
+)
 from .review import render_review_html, render_review_markdown, write_review
-from .tts import plan_tts_requests
+from .tts import estimate_tts_cost, plan_tts_requests
 
 
 def run_extract(pdf: Path, config: AppConfig, *, chapter: int | None = None, ocr_fn=None) -> list[Path]:
@@ -201,3 +211,383 @@ def _chapter_index_from_name(name: str) -> int:
 
 def resolve_config(path: str | None) -> AppConfig:
     return load_config(path)
+
+
+def select_chunks(
+    chunks: list[Chunk],
+    *,
+    start: int = 0,
+    seconds: float | None = None,
+    max_chunks: int | None = None,
+) -> list[Chunk]:
+    """Take consecutive chunks, optionally until a duration or a count is reached."""
+    ordered = sorted(chunks, key=lambda chunk: chunk.order)
+    if start < 0 or (ordered and start >= len(ordered)) or (not ordered and start > 0):
+        raise SystemExit(
+            f"sample-start {start} is outside this chapter "
+            f"({len(ordered)} chunk{'s' if len(ordered) != 1 else ''}, indexes start at 0)"
+        )
+    chosen = ordered[start:]
+    if seconds is not None:
+        if seconds <= 0:
+            raise SystemExit("--sample-seconds must be greater than 0")
+        picked: list[Chunk] = []
+        total = 0.0
+        for chunk in chosen:
+            picked.append(chunk)
+            total += chunk.estimated_duration_sec
+            if total >= seconds:
+                break
+        chosen = picked
+    if max_chunks is not None:
+        if max_chunks < 1:
+            raise SystemExit("--max-chunks must be at least 1")
+        chosen = chosen[:max_chunks]
+    return chosen
+
+
+def format_estimate(chunks: list[Chunk], config: AppConfig) -> str:
+    seconds = sum(chunk.estimated_duration_sec for chunk in chunks)
+    tokens = int(round(sum(chunk.word_count for chunk in chunks) * config.cost.tokens_per_word))
+    cost = estimate_tts_cost(
+        audio_seconds=seconds,
+        tts_input_tokens=tokens,
+        tts_output_price_per_million=config.cost.tts_output_price_per_million,
+        tts_input_price_per_million=config.cost.tts_input_price_per_million,
+        audio_tokens_per_second=config.cost.audio_tokens_per_second,
+    )
+    return (
+        f"chunks: {len(chunks)}\n"
+        f"audio_minutes: {seconds / 60.0:.2f}\n"
+        f"estimated_cost_usd: {cost['total_cost']:.4f}\n"
+    )
+
+
+def book_slug(name: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-._").lower()
+    return slug or "book"
+
+
+def utc_stamp(moment: datetime | None = None) -> str:
+    current = moment or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return current.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def config_with_paths(config: AppConfig, **paths: str) -> AppConfig:
+    return replace(config, paths=replace(config.paths, **paths))
+
+
+def run_prep_model(
+    config: AppConfig,
+    profile: StyleProfile,
+    client,
+    *,
+    chapter: int | None = None,
+    only_ids: set[str] | None = None,
+) -> list[Path]:
+    """Call the text model for each chunk. Completed chunk files are skipped."""
+    paths = _chunk_paths(config, chapter)
+    jobs: list[tuple[Path, list[Chunk]]] = []
+    for path in paths:
+        chunks = load_chapter_jsonl(path)
+        if only_ids is not None:
+            chunks = [chunk for chunk in chunks if chunk.id in only_ids]
+        if chunks:
+            jobs.append((path, chunks))
+    written: list[Path] = []
+    workers = max(1, int(config.prep.concurrency))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = []
+        for path, chunks in jobs:
+            chapter_chunks = load_chapter_jsonl(path)
+            positions = {chunk.id: index for index, chunk in enumerate(chapter_chunks)}
+            for chunk in chunks:
+                futures.append(
+                    pool.submit(
+                        _prep_one,
+                        config,
+                        profile,
+                        client,
+                        chapter_chunks,
+                        positions[chunk.id],
+                        chunk,
+                    )
+                )
+        for future in futures:
+            written.append(future.result())
+    chapters = {chunk.chapter_index for _, chunks in jobs for chunk in chunks}
+    for index in sorted(chapters):
+        _rewrite_prep_jsonl(config, index)
+    return written
+
+
+def run_tts_model(
+    config: AppConfig,
+    profile: StyleProfile,
+    client,
+    *,
+    chapter: int | None = None,
+    only_ids: set[str] | None = None,
+) -> list[Path]:
+    """Synthesize planned requests. Existing playable clips are skipped."""
+    outputs = _load_prep_outputs(config, chapter)
+    if only_ids is not None:
+        outputs = {key: value for key, value in outputs.items() if key in only_ids}
+    if not outputs:
+        return []
+    chunks_by_id = {
+        chunk.id: chunk
+        for path in _chunk_paths(config, chapter)
+        for chunk in load_chapter_jsonl(path)
+    }
+    written: list[Path] = []
+    jobs = []
+    for chunk_id, output in outputs.items():
+        chunk = chunks_by_id.get(chunk_id)
+        order = chunk.order if chunk else 0
+        chapter_index = chunk.chapter_index if chunk else _chapter_index_from_chunk_id(chunk_id)
+        requests = plan_tts_requests(output.get("turns") or [], profile, config)
+        plan_dir = Path(config.paths.tts) / "plans"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = plan_dir / f"{chunk_id}.json"
+        plan_path.write_text(
+            json.dumps(
+                {
+                    "chunk_id": chunk_id,
+                    "prompt_version": output.get("prompt_version"),
+                    "requests": [to_jsonable(request) for request in requests],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        for request_index, request in enumerate(requests):
+            dest = _clip_path(config, chapter_index, order, chunk_id, request_index)
+            jobs.append((request, dest))
+    workers = max(1, int(config.tts.concurrency))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(_synthesize_one, client, config, request, dest) for request, dest in jobs]
+        for future in futures:
+            written.append(future.result())
+    return written
+
+
+def run_sample(
+    config: AppConfig,
+    profile: StyleProfile,
+    *,
+    pdf: Path | None,
+    chapter: int,
+    prep_client,
+    tts_client,
+    seconds: float = 60,
+    start: int = 0,
+    max_chunks: int | None = None,
+    dry_run: bool = False,
+    stamp: str | None = None,
+) -> dict:
+    """Run prep, speech, and assembly for a short span, outside the chapter cache."""
+    if pdf is not None:
+        run_extract(pdf, config, chapter=chapter)
+    run_chunk(config, chapter=chapter)
+    chunks = select_chunks(
+        _chunks_for_chapter(config, chapter),
+        start=start,
+        seconds=seconds,
+        max_chunks=max_chunks,
+    )
+    if dry_run:
+        return {"dry_run": True, "chunks": chunks, "estimate": format_estimate(chunks, config)}
+    if prep_client is None or tts_client is None:
+        raise RuntimeError("GEMINI_API_KEY is not set")
+    slug = book_slug(Path(pdf).stem if pdf else _manifest_title(config))
+    token = stamp or utc_stamp()
+    public_dir = Path(config.paths.artifacts) / slug / "samples"
+    public_dir.mkdir(parents=True, exist_ok=True)
+    work = public_dir / "work" / f"{chapter}-{token}"
+    if work.exists():
+        shutil.rmtree(work)
+    isolated = config_with_paths(
+        config,
+        prep=str(work / "prep"),
+        tts=str(work / "tts"),
+        audio=str(work / "audio"),
+    )
+    only_ids = {chunk.id for chunk in chunks}
+    run_prep_model(isolated, profile, prep_client, chapter=chapter, only_ids=only_ids)
+    run_tts_model(isolated, profile, tts_client, chapter=chapter, only_ids=only_ids)
+    clip_root = Path(isolated.paths.audio) / "clips" / f"{chapter:03d}"
+    if not clip_root.exists():
+        raise RuntimeError(f"Sample for chapter {chapter} produced no audio clips")
+    clips = sorted(path for path in clip_root.iterdir() if path.suffix.lower() in {".wav", ".pcm"})
+    if not clips:
+        raise RuntimeError(f"Sample for chapter {chapter} produced no audio clips")
+    wav_path = public_dir / f"{chapter}-{token}.wav"
+    assemble_clips(
+        clips,
+        wav_path,
+        sample_rate=config.tts.sample_rate,
+        gap_ms=config.assemble.gap_ms,
+        crossfade_ms=config.assemble.crossfade_ms,
+    )
+    outputs = _load_prep_outputs(isolated, chapter)
+    review_text = render_review_markdown(chunks, outputs)
+    review_path = public_dir / f"{chapter}-{token}.md"
+    write_review(review_path, review_text)
+    return {
+        "dry_run": False,
+        "chunks": chunks,
+        "wav": wav_path,
+        "review": review_path,
+        "estimate": format_estimate(chunks, config),
+    }
+
+
+def run_chapter_pipeline(
+    config: AppConfig,
+    profile: StyleProfile,
+    *,
+    pdf: Path | None,
+    chapter: int | None,
+    prep_client,
+    tts_client,
+    max_chunks: int | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Extract, chunk, prep, synthesize, and assemble one chapter or the whole book."""
+    if pdf is not None:
+        run_extract(pdf, config, chapter=chapter)
+    run_chunk(config, chapter=chapter)
+    selected: list[Chunk] = []
+    indexes = _chapter_indexes(config, chapter)
+    for index in indexes:
+        chapter_chunks = _chunks_for_chapter(config, index)
+        if max_chunks is not None:
+            chapter_chunks = select_chunks(chapter_chunks, max_chunks=max_chunks)
+        selected.extend(chapter_chunks)
+    if dry_run:
+        return {"dry_run": True, "chunks": selected, "estimate": format_estimate(selected, config)}
+    if prep_client is None or tts_client is None:
+        raise RuntimeError("GEMINI_API_KEY is not set")
+    only_ids = {chunk.id for chunk in selected} if max_chunks is not None else None
+    run_prep_model(config, profile, prep_client, chapter=chapter, only_ids=only_ids)
+    run_tts_model(config, profile, tts_client, chapter=chapter, only_ids=only_ids)
+    audio = run_assemble(config, chapter=chapter)
+    return {
+        "dry_run": False,
+        "chunks": selected,
+        "audio": audio,
+        "estimate": format_estimate(selected, config),
+    }
+
+
+def chapter_rows(config: AppConfig) -> list[dict]:
+    manifest = load_manifest(config.paths.ingest)
+    return list(manifest.get("chapters") or [])
+
+
+def _prep_one(config, profile, client, chunks: list[Chunk], index: int, chunk: Chunk) -> Path:
+    dest = _prep_chunk_path(config, chunk.id)
+    if dest.exists():
+        try:
+            existing = json.loads(dest.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            existing = None
+        if isinstance(existing, dict) and not schema_errors(existing) and not validate_prep_output(existing, chunk, config):
+            return dest
+    neighbor_count = max(0, int(config.prep.neighbor_chunks))
+    previous_text = _neighbor_text(chunks, max(0, index - neighbor_count), index)
+    following_text = _neighbor_text(chunks, index + 1, index + 1 + neighbor_count)
+    image_root = _image_root(config)
+    request = build_prep_request(
+        chunk,
+        profile,
+        config,
+        previous_text=previous_text,
+        following_text=following_text,
+        image_root=image_root,
+    )
+    request_path = Path(config.paths.prep) / "requests" / f"{chunk.id}.json"
+    request_path.parent.mkdir(parents=True, exist_ok=True)
+    request_path.write_text(json.dumps(request, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    output = prepare_chunk_output(
+        chunk,
+        profile,
+        config,
+        client,
+        previous_text=previous_text,
+        following_text=following_text,
+        image_root=image_root,
+        request=request,
+    )
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return dest
+
+
+def _synthesize_one(client, config: AppConfig, request, dest: Path) -> Path:
+    if dest.exists():
+        try:
+            load_pcm(dest.read_bytes(), expected_rate=config.tts.sample_rate)
+            return dest
+        except Exception:
+            pass
+    pcm = client.synthesize(request)
+    clip = load_pcm(pcm, expected_rate=config.tts.sample_rate)
+    if not isinstance(clip, PcmClip):
+        raise RuntimeError(f"Speech response for {dest.name} was not PCM")
+    write_wav(dest, clip)
+    return dest
+
+
+def _prep_chunk_path(config: AppConfig, chunk_id: str) -> Path:
+    return Path(config.paths.prep) / "outputs" / "chunks" / f"{chunk_id}.json"
+
+
+def _rewrite_prep_jsonl(config: AppConfig, chapter: int) -> Path:
+    root = Path(config.paths.prep) / "outputs" / "chunks"
+    dest = Path(config.paths.prep) / "outputs" / f"{chapter:03d}.jsonl"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    lines = []
+    if root.exists():
+        prefix = f"c{chapter:03d}-"
+        for path in sorted(root.glob("*.json")):
+            if not path.stem.startswith(prefix):
+                continue
+            lines.append(json.dumps(json.loads(path.read_text(encoding="utf-8")), ensure_ascii=False))
+    dest.write_text(("\n".join(lines) + ("\n" if lines else "")), encoding="utf-8")
+    return dest
+
+
+def _clip_path(config: AppConfig, chapter_index: int, order: int, chunk_id: str, request_index: int) -> Path:
+    return (
+        Path(config.paths.audio)
+        / "clips"
+        / f"{chapter_index:03d}"
+        / f"{order:04d}-{chunk_id}-r{request_index:02d}.wav"
+    )
+
+
+def _chapter_index_from_chunk_id(chunk_id: str) -> int:
+    match = re.match(r"c(\d+)-", chunk_id)
+    if not match:
+        raise SystemExit(f"Chunk id {chunk_id} does not encode a chapter index")
+    return int(match.group(1))
+
+
+def _chapter_indexes(config: AppConfig, chapter: int | None) -> list[int]:
+    if chapter is not None:
+        return [chapter]
+    return [int(item["index"]) for item in chapter_rows(config)]
+
+
+def _manifest_title(config: AppConfig) -> str:
+    try:
+        manifest = load_manifest(config.paths.ingest)
+    except FileNotFoundError:
+        return "book"
+    return str(manifest.get("title") or "book")

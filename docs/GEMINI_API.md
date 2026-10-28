@@ -55,5 +55,8 @@ Sources:
 
 - Default TTS API is GenerateContent. `tts.api = "interactions"` switches the payload builder.
 - Default audio request is `AUDIO_L16` at 24000 Hz, mono, 16-bit. Interactions uses `audio/l16` from `tts.interactions_audio_mime`.
-- `audiobook voices list` calls `GET {tts.endpoints.voices}` with `x-goog-api-key`.
-- `GeminiTextPrepClient.generate` and `GeminiTtsClient.synthesize` raise `NotImplementedError`. Planning and validation do not need a key.
+- `audiobook voices list` calls the voice catalog. With the default client this is `google-genai` `client.voices.list()` (`google-genai` 2.25+). Filters include `language_code`, `gender`, and `search`.
+- Text prep calls `client.models.generate_content` with `response_mime_type=application/json`. That field is on `GenerateContentConfig`.
+- Speech synthesis posts the planned GenerateContent body through HTTP (`httpx`). Checked on 2026-10-28: the installed SDK's `GenerateContentConfig` still has no `response_format` field, and the SDK `ResponseFormat` type is marked unsupported on the Gemini API. Raw `AUDIO_L16` therefore stays on REST. The body is the planner payload (`responseFormat.audio.mimeType` = `AUDIO_L16`, `sampleRate` = 24000). Responses are base64 `inlineData`. WAV is parsed as RIFF; headerless bytes are PCM.
+- Voice design is a documented Gemini API, not only an AI Studio screen. `POST /v1beta/voices` with `store: true` and `voice.type: "prompted"` returns a persistent `voice_...` id. The SDK method is `client.voices.create(store=True, voice=...)`. `audiobook voices design --description "..."` prints that id. The public Gemini API sample includes `voice.model`. A separate Vertex AI page says not to set `model` together with `store: true`; this repo follows the Gemini API sample and sends the configured TTS model.
+- Default narrator voice is the prebuilt name `Schedar` ("Even" on the prebuilt table). `--voice` accepts a prebuilt name, an Extended Voice Library id, or a `voice_...` / `voicekey_...` id.

@@ -1,6 +1,5 @@
-"""Stage 4: plan TTS requests and list voices.
+"""Stage 4: plan TTS requests, synthesize audio, and manage voices.
 
-`synthesize` is stubbed. `list_voices` performs GET /v1beta/voices.
 Multi-speaker requests are used only when a run of turns uses exactly two
 prebuilt voices. Every other turn is its own request.
 """
@@ -8,12 +7,23 @@ prebuilt voices. Every other turn is its own request.
 from __future__ import annotations
 
 import json
+import re
+import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Callable, Protocol
 
 from .config import AppConfig, StyleProfile, TtsConfig, VoiceMapping
+from .gemini_api import (
+    call_with_backoff,
+    design_voice_body,
+    design_voice_rest,
+    design_voice_sdk,
+    httpx_send,
+    list_voices_sdk,
+    synthesize_rest,
+)
 from .models import TtsRequest
 
 # Prebuilt studio voices named in the public Gemini 3.8 TTS docs.
@@ -70,17 +80,87 @@ class ResolvedTurn:
     voice_type: str
 
 
-class GeminiTtsClient:
-    """HTTP voice catalog plus a stubbed synthesize call."""
+_PREBUILT_SHAPE = re.compile(r"^[A-Z][A-Za-z]+$")
 
-    def __init__(self, api_key: str | None, config: AppConfig, opener: Callable | None = None):
+
+def classify_voice_name(voice: str, declared: str = "") -> str:
+    """Return prebuilt, library, design, or replication.
+
+    A single Capitalized word is treated as a prebuilt name and must be in
+    the documented list. Hyphenated ids are Extended Voice Library ids.
+    ``voice_...`` is a designed voice and ``voicekey_...`` is a replication key.
+    """
+    name = (voice or "").strip()
+    if not name:
+        raise ValueError("A voice name or id is required")
+    kind = (declared or "").strip().lower()
+    if kind in {"prebuilt", "library", "design", "replication"}:
+        if kind == "prebuilt" and name not in PREBUILT_VOICES:
+            raise ValueError(_unknown_prebuilt(name))
+        return kind
+    if name.startswith("voicekey_"):
+        return "replication"
+    if name.startswith("voice_"):
+        return "design"
+    if name in PREBUILT_VOICES:
+        return "prebuilt"
+    if _PREBUILT_SHAPE.match(name):
+        raise ValueError(_unknown_prebuilt(name))
+    return "library"
+
+
+def _unknown_prebuilt(name: str) -> str:
+    known = ", ".join(sorted(PREBUILT_VOICES))
+    return (
+        f"{name} is not a documented prebuilt voice. "
+        f"Prebuilt names: {known}. "
+        "Extended Voice Library ids and voice_ design ids are also accepted."
+    )
+
+
+class GeminiTtsClient:
+    """Live synthesis, voice catalog, and voice design."""
+
+    def __init__(
+        self,
+        api_key: str | None,
+        config: AppConfig,
+        opener: Callable | None = None,
+        sender: Callable | None = None,
+        sleep=None,
+    ):
         self.api_key = api_key
         self.config = config
         self.opener = opener or urllib.request.urlopen
+        self.sender = sender
+        self.sleep = sleep or time.sleep
 
     def synthesize(self, request: TtsRequest) -> bytes:
-        raise NotImplementedError(
-            "TTS synthesis is not implemented. plan_tts_requests() builds the payload."
+        if not self.api_key and self.sender is None:
+            raise RuntimeError("GEMINI_API_KEY is not set")
+        if request.api == "interactions":
+            url = self.config.tts.endpoints.interactions
+            body = dict(request.payload)
+        else:
+            url = self.config.tts.endpoints.generate_content.format(model=request.model)
+            body = {key: value for key, value in request.payload.items() if key != "model"}
+        sender = self.sender or httpx_send
+
+        def once() -> bytes:
+            return synthesize_rest(
+                self.api_key or "",
+                url=url,
+                body=body,
+                sample_rate=request.sample_rate,
+                sender=sender,
+            )
+
+        return call_with_backoff(
+            once,
+            max_retries=self.config.tts.max_http_retries,
+            initial=self.config.tts.backoff_initial_seconds,
+            multiplier=self.config.tts.backoff_multiplier,
+            sleep=self.sleep,
         )
 
     def list_voices(
@@ -89,19 +169,84 @@ class GeminiTtsClient:
         search: str | None = None,
         language_code: str | None = None,
         page_size: int = 50,
+        gender: str | None = None,
+        voice_type: str | None = None,
     ) -> list[dict]:
         if not self.api_key:
             raise RuntimeError("GEMINI_API_KEY is not set")
-        params: dict[str, str | int] = {"page_size": page_size}
-        if search:
-            params["search"] = search
-        if language_code:
-            params["language_code"] = language_code
-        endpoint = self.config.tts.endpoints.voices
-        url = endpoint + "?" + urllib.parse.urlencode(params)
-        request = urllib.request.Request(url, headers={"x-goog-api-key": self.api_key})
+        filters = {
+            "search": search,
+            "language_code": language_code,
+            "page_size": page_size,
+            "gender": gender,
+            "voice_type": voice_type,
+        }
+        if self.opener is not urllib.request.urlopen:
+            return self._list_voices_urllib(filters)
+        try:
+            return list_voices_sdk(self.api_key, **filters)
+        except ImportError:
+            return self._list_voices_http(filters)
+
+    def design_voice(
+        self,
+        description: str,
+        *,
+        display_name: str = "Designed narrator",
+        language_code: str | None = None,
+        gender: str | None = None,
+    ) -> str:
+        """Create a prompted voice and return its ``voice_...`` id."""
+        if not description or not description.strip():
+            raise ValueError("A voice description is required")
+        if not self.api_key and self.sender is None:
+            raise RuntimeError("GEMINI_API_KEY is not set")
+        body = design_voice_body(
+            description.strip(),
+            model=self.config.tts.model,
+            display_name=display_name,
+            language_code=language_code,
+            gender=gender,
+        )
+        url = self.config.tts.endpoints.voices
+
+        def once() -> str:
+            if self.sender is not None:
+                return design_voice_rest(self.api_key or "", url, body, self.sender)
+            try:
+                return design_voice_sdk(self.api_key or "", body["voice"])
+            except ImportError:
+                return design_voice_rest(self.api_key or "", url, body, httpx_send)
+
+        return call_with_backoff(
+            once,
+            max_retries=self.config.tts.max_http_retries,
+            initial=self.config.tts.backoff_initial_seconds,
+            multiplier=self.config.tts.backoff_multiplier,
+            sleep=self.sleep,
+        )
+
+    def _list_voices_urllib(self, filters: dict) -> list[dict]:
+        params = _voice_query(filters)
+        url = self.config.tts.endpoints.voices + "?" + urllib.parse.urlencode(params)
+        request = urllib.request.Request(url, headers={"x-goog-api-key": self.api_key or ""})
         with self.opener(request) as response:
             payload = json.loads(response.read().decode("utf-8"))
+        if isinstance(payload, list):
+            return payload
+        return list(payload.get("voices") or [])
+
+    def _list_voices_http(self, filters: dict) -> list[dict]:
+        params = _voice_query(filters)
+        url = self.config.tts.endpoints.voices + "?" + urllib.parse.urlencode(params)
+        status, raw = httpx_send("GET", url, {"x-goog-api-key": self.api_key or ""}, None)
+        if status == 429 or 500 <= status <= 599:
+            from .gemini_api import RetryableHttpError
+
+            raise RetryableHttpError(status, raw[:400].decode("utf-8", "replace"))
+        if status >= 400:
+            raise RuntimeError(f"Gemini API error {status}: {raw[:400].decode('utf-8', 'replace')}")
+        payload = json.loads(raw.decode("utf-8"))
         if isinstance(payload, list):
             return payload
         return list(payload.get("voices") or [])
@@ -205,17 +350,23 @@ def _voice_for(speaker: str, profile: StyleProfile, config: TtsConfig) -> VoiceM
 
 
 def _classify(mapping: VoiceMapping) -> str:
-    declared = (mapping.voice_type or "").strip().lower()
-    if declared in {"prebuilt", "library", "design", "replication"}:
-        return declared
-    voice = mapping.voice
-    if voice.startswith("voicekey_"):
-        return "replication"
-    if voice.startswith("voice_"):
-        return "design"
-    if voice in PREBUILT_VOICES:
-        return "prebuilt"
-    return "library"
+    return classify_voice_name(mapping.voice, mapping.voice_type)
+
+
+def _voice_query(filters: dict) -> dict[str, str | int]:
+    params: dict[str, str | int] = {}
+    page_size = filters.get("page_size")
+    if page_size:
+        params["page_size"] = page_size
+    if filters.get("search"):
+        params["search"] = filters["search"]
+    if filters.get("language_code"):
+        params["language_code"] = filters["language_code"]
+    if filters.get("gender"):
+        params["gender"] = filters["gender"]
+    if filters.get("voice_type"):
+        params["type"] = filters["voice_type"]
+    return params
 
 
 def _build_request(group: list[ResolvedTurn], config: AppConfig) -> TtsRequest:

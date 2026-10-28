@@ -34,7 +34,7 @@ def test_outline_pdf_preserves_structure_and_linked_elements(tmp_path: Path):
     assert "weather" in footnote.text
     assert "rain" in anchor.text
     assert f"[[footnote:{footnote.id}]]" in anchor.text
-    assert any(element.citation_kind == "author_year" and "Okada" in element.text for element in prose.elements)
+    assert any(element.citation_kind == "author_year" and "Quillan" in element.text for element in prose.elements)
     assert any(element.citation_kind == "cross_reference" for element in prose.elements)
     inline = next(element for element in prose.elements if element.kind == "formula" and not element.display)
     assert "mc^2" in (inline.latex or "")
@@ -42,9 +42,9 @@ def test_outline_pdf_preserves_structure_and_linked_elements(tmp_path: Path):
     assert (dest / "chapters" / inline.image_path).stat().st_size > 0
 
     speakers = [block.speaker for block in dialogue.blocks if block.speaker]
-    assert speakers == ["GUIDE", "WANDERER", "ACHILLES", "TORTOISE"]
+    assert speakers == ["GUIDE", "WANDERER", "RIVER", "GATE"]
     assert dialogue.kind == "dialogue"
-    assert any("race-course" in block.text for block in dialogue.blocks)
+    assert any("splits after the stone" in block.text for block in dialogue.blocks)
     assert any(block.kind == "aside" for block in prose.blocks)
 
     figures = [element for element in marks.elements if element.kind == "figure"]

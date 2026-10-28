@@ -1,8 +1,4 @@
-"""Stage 3: prompt, multimodal request, validator, and sub-turn helpers.
-
-The Gemini text call itself is a Protocol. `GeminiTextPrepClient.generate`
-is intentionally unimplemented.
-"""
+"""Stage 3: prompt, multimodal request, validator, and the live text call."""
 
 from __future__ import annotations
 
@@ -10,13 +6,15 @@ import base64
 import io
 import json
 import re
-from dataclasses import dataclass
+import time
 from pathlib import Path
 from typing import Protocol
 
 from PIL import Image
+from jsonschema import Draft202012Validator
 
 from .config import AppConfig, PrepConfig, StyleProfile
+from .gemini_api import ModelOutputError, call_with_backoff, generate_prep
 from .models import Chunk, to_jsonable
 from .textutil import count_sentences, estimate_seconds, spoken_source_words, split_sentences, word_count
 
@@ -59,18 +57,118 @@ class TextPrepClient(Protocol):
         """Return parsed JSON prep output for one multimodal request."""
 
 
-@dataclass
-class GeminiTextPrepClient:
-    """Stub. Request building and validation do not need the network."""
+class ChunkPrepFailed(RuntimeError):
+    def __init__(self, chunk_id: str, errors: list[str]):
+        self.chunk_id = chunk_id
+        self.errors = errors
+        detail = "; ".join(errors)
+        super().__init__(f"Text prep failed for chunk {chunk_id}: {detail}")
 
-    api_key: str | None = None
-    model: str = "gemini-3.8-flash"
+
+class GeminiTextPrepClient:
+    """Live text-prep client. HTTP 429 and 5xx responses are retried with backoff."""
+
+    def __init__(self, api_key: str | None, config: AppConfig, sender=None, sleep=None):
+        self.api_key = api_key
+        self.config = config
+        self.sender = sender
+        self.sleep = sleep or time.sleep
 
     def generate(self, request: dict) -> dict:
-        raise NotImplementedError(
-            "Text-prep model calls are not implemented. "
-            "build_prep_request() writes the multimodal request for a later run."
+        if not self.api_key and self.sender is None:
+            raise RuntimeError("GEMINI_API_KEY is not set")
+
+        def once() -> dict:
+            return generate_prep(
+                self.api_key or "",
+                request,
+                endpoint_template=self.config.tts.endpoints.generate_content,
+                sender=self.sender,
+            )
+
+        return call_with_backoff(
+            once,
+            max_retries=self.config.prep.max_http_retries,
+            initial=self.config.prep.backoff_initial_seconds,
+            multiplier=self.config.prep.backoff_multiplier,
+            sleep=self.sleep,
         )
+
+
+def schema_path() -> Path:
+    return Path(__file__).resolve().parent / "schemas" / "prep_output.json"
+
+
+def load_prep_schema() -> dict:
+    return json.loads(schema_path().read_text(encoding="utf-8"))
+
+
+def schema_errors(output: dict) -> list[str]:
+    validator = Draft202012Validator(load_prep_schema())
+    found = []
+    for error in sorted(validator.iter_errors(output), key=lambda item: list(item.path)):
+        location = ".".join(str(part) for part in error.path) or "(root)"
+        found.append(f"{location}: {error.message}")
+    return found
+
+
+def feedback_request(request: dict, errors: list[str], previous) -> dict:
+    """Return a copy of ``request`` with validator errors appended for a retry."""
+    lines = "\n".join(f"- {error}" for error in errors)
+    previous_text = previous if isinstance(previous, str) else json.dumps(previous, ensure_ascii=False)
+    if len(previous_text) > 6000:
+        previous_text = previous_text[:6000] + "\n…"
+    note = (
+        "The previous JSON failed validation. Fix every error and return JSON only.\n"
+        f"{lines}\n"
+        f"Previous JSON:\n{previous_text}"
+    )
+    updated = dict(request)
+    updated["contents"] = list(request.get("contents") or []) + [
+        {"role": "user", "parts": [{"text": note}]}
+    ]
+    return updated
+
+
+def prepare_chunk_output(
+    chunk: Chunk,
+    profile: StyleProfile,
+    config: AppConfig,
+    client: TextPrepClient,
+    *,
+    previous_text: str = "",
+    following_text: str = "",
+    image_root: Path | None = None,
+    request: dict | None = None,
+) -> dict:
+    """Call the text model, validate, and retry with the errors fed back."""
+    if request is None:
+        request = build_prep_request(
+            chunk,
+            profile,
+            config,
+            previous_text=previous_text,
+            following_text=following_text,
+            image_root=image_root,
+        )
+    attempts = config.prep.max_validation_retries + 1
+    errors: list[str] = []
+    previous = None
+    for attempt in range(attempts):
+        payload = request if attempt == 0 else feedback_request(request, errors, previous)
+        try:
+            output = client.generate(payload)
+        except ModelOutputError as exc:
+            errors = [str(exc)]
+            previous = exc.raw
+            continue
+        errors = schema_errors(output)
+        if not errors:
+            errors = validate_prep_output(output, chunk, config)
+        if not errors:
+            return output
+        previous = output
+    raise ChunkPrepFailed(chunk.id, errors or ["no prep output"])
 
 
 def prompt_template_path() -> Path:

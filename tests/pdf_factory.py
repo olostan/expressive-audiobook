@@ -108,7 +108,7 @@ def _prose_page(doc: pymupdf.Document) -> None:
             (" in the margin.", "helv"),
         ],
     )
-    page.insert_text((72, 304), "A margin note cites (Okada, 2004) after the storm.", fontsize=11, fontname="helv")
+    page.insert_text((72, 304), "A margin note cites (Quillan, 2004) after the storm.", fontsize=11, fontname="helv")
     page.insert_text((72, 336), "The map says see Chapter 2 before the ridge.", fontsize=11, fontname="helv")
     page.insert_text((90, 372), "Aside: the margin is not the argument.", fontsize=11, fontname="tiit")
     page.draw_line((72, 680), (180, 680), width=0.4)
@@ -119,22 +119,11 @@ def _dialogue_page(doc: pymupdf.Document) -> None:
     page = doc.new_page(width=612, height=792)
     _header(page, 3)
     page.insert_text((72, 130), "Chapter 2. What the Gate Said", fontsize=22, fontname="hebo")
-    page.insert_text((72, 180), "A public-domain exchange follows.", fontsize=11, fontname="helv")
+    page.insert_text((72, 180), "The exchange at the gate follows.", fontsize=11, fontname="helv")
     page.insert_text((72, 214), "GUIDE: You brought the map.", fontsize=11, fontname="helv")
     page.insert_text((72, 240), "WANDERER: I almost left it on the table.", fontsize=11, fontname="helv")
-    # Lewis Carroll, What the Tortoise Said to Achilles (1895). Public domain.
-    page.insert_text(
-        (72, 280),
-        "ACHILLES: So you've got to the end of our race-course?",
-        fontsize=11,
-        fontname="helv",
-    )
-    page.insert_text(
-        (72, 306),
-        "TORTOISE: Even though it does consist of an infinite series of distances?",
-        fontsize=11,
-        fontname="helv",
-    )
+    page.insert_text((72, 280), "RIVER: The path splits after the stone.", fontsize=11, fontname="helv")
+    page.insert_text((72, 306), "GATE: Both paths meet again at the ridge.", fontsize=11, fontname="helv")
 
 
 def _figure_page(doc: pymupdf.Document) -> None:
