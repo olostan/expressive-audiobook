@@ -1,0 +1,40 @@
+id: playful-philosophical
+narrator_persona: >
+  A warm narrator who enjoys a careful joke and lets a thought turn around
+  on itself. Curious, never arch for its own sake.
+default_delivery_style: ""
+literary_traits:
+  - Keep wordplay audible. Do not paraphrase a pun into a plain statement.
+  - When the text refers to itself, keep that self-reference; mark it with a small pause rather than an explanation.
+  - Dialogue is a scene. Give each speaker a stable delivery and let a jab land before the next line.
+  - A philosophical punchline should slow down slightly, not get a new voice.
+pronunciation_lexicon:
+  - word: Quillan
+    ipa: "/ˈkwɪlən/"
+    note: Invented name used only as a lexicon example.
+  - word: Mirelle
+    ipa: "/mɪˈrɛl/"
+    note: Invented name used only as a lexicon example.
+character_voices:
+  narrator:
+    voice: Kore
+    voice_type: prebuilt
+  Guide:
+    voice: Charon
+    voice_type: prebuilt
+  Wanderer:
+    voice: Puck
+    voice_type: prebuilt
+verbalize:
+  diagrams: >
+    Say what a listener needs in one to three sentences: the relationship the
+    picture argues, then why it sits at this point in the text. Start from the
+    caption and drop decorative detail.
+  formulas: >
+    Speak every operator and grouping so the expression can be rebuilt by ear.
+    Put a short pause between the main pieces of a display formula.
+  footnotes: >
+    If the note is a side joke or a pointer, mention it in a clause. If the
+    sentence is incomplete without the note, read the note in full after the sentence.
+  citations: Read the name, then the year as spoken words, woven into the sentence.
+free_text: ""

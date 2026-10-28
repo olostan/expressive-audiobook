@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Text-prep output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["prompt_version", "chunk_id", "turns"],
+  "properties": {
+    "prompt_version": {"type": "string", "minLength": 1},
+    "chunk_id": {"type": "string", "minLength": 1},
+    "turns": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/turn"}
+    }
+  },
+  "$defs": {
+    "turn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "style", "speaker", "rationale", "inserted_descriptions"],
+      "properties": {
+        "text": {"type": "string"},
+        "style": {
+          "type": "string",
+          "description": "Free-form speech_metadata.style. Empty is valid. Not an enum."
+        },
+        "speaker": {"type": "string", "minLength": 1},
+        "rationale": {
+          "type": "string",
+          "description": "Reviewer note. Must not be copied into a TTS request."
+        },
+        "block_ids": {"type": "array", "items": {"type": "string"}},
+        "inserted_descriptions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/description"}
+        }
+      }
+    },
+    "description": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["element_id", "kind", "anchor", "spoken_text", "decision"],
+      "properties": {
+        "element_id": {"type": "string"},
+        "kind": {"enum": ["figure", "formula", "footnote", "citation"]},
+        "anchor": {"type": "string"},
+        "spoken_text": {"type": "string"},
+        "decision": {"enum": ["read-full", "mention", "skip-with-reason"]},
+        "reason": {"type": "string"}
+      }
+    }
+  }
+}

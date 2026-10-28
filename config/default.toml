@@ -1,0 +1,162 @@
+# Generic PDF -> expressive audiobook pipeline.
+# Model ids and API field names live here so code does not hardcode them.
+
+[paths]
+artifacts = "artifacts"
+ingest = "artifacts/ingest"
+chunks = "artifacts/chunks"
+prep = "artifacts/prep"
+tts = "artifacts/tts"
+audio = "artifacts/audio"
+
+[ingest]
+ocr_enabled = false
+header_footer_band_ratio = 0.09
+footnote_region_ratio = 0.60
+image_dpi = 144
+vector_cluster_gap = 18.0
+min_vector_area = 800.0
+full_page_image_ratio = 0.70
+
+[chunking]
+wpm = 150
+target_min_seconds = 30
+target_max_seconds = 50
+hard_cap_seconds = 60
+figure_description_sentences = 2
+words_per_spoken_sentence = 18
+formula_description_words = 40
+footnote_lead_in_words = 2
+
+[prep]
+# Verified multimodal text model (text + image in, text out). Not a TTS model.
+model = "gemini-3.8-flash"
+prompt_version = "prep-v1"
+language = "en"
+max_images_per_request = 4
+max_image_edge_px = 1024
+max_style_chars = 400
+max_description_sentences = 3
+max_description_words = 80
+footnote_mention_max_words = 40
+citation_max_words = 40
+footnote_read_full_extra_words = 16
+neighbor_chunks = 1
+temperature = 0.4
+
+allowed_tags = [
+  "<laugh>",
+  "<laughter>",
+  "<chuckle>",
+  "<chuckles>",
+  "<giggle>",
+  "<snicker>",
+  "<cackle>",
+  "<sigh>",
+  "<sighs>",
+  "<breath>",
+  "<heavy breath>",
+  "<exhales>",
+  "<pant>",
+  "<gasp>",
+  "<cough>",
+  "<sneeze>",
+  "<throat-clearing>",
+  "<snort>",
+  "<yawn>",
+  "<short pause>",
+  "<long pause>",
+  "<whispers>",
+  "<whispering>",
+  "<argh>",
+  "<grr>",
+  "<growl>",
+  "<grunt>",
+  "<hiss>",
+  "<tsk>",
+  "<cry>",
+  "<sob>",
+  "<whimper>",
+  "<groan>",
+  "<moan>",
+  "<scream>",
+  "<shout>",
+  "<shriek>",
+  "<cheer>",
+  "<pff>",
+  "<phew>",
+]
+
+backchannels = ["|mhm|", "|yeah|"]
+
+style_examples = [
+  "cheerful and friendly",
+  "calm and relaxed",
+  "speaking slowly",
+  "speaking rapidly",
+  "whispered urgently",
+  "out of breath",
+  "monotone and flat",
+  "sarcastic",
+  "warm and enthusiastic",
+  "ecstatic, breathless disbelief, joyful vocal smile",
+  "high pitch, cheerful and excited inflection",
+]
+
+# REST GenerateContent field names. Kept in config so they are not scattered
+# through code as unverified literals.
+[prep.fields]
+inline_data = "inlineData"
+mime_type = "mimeType"
+
+[tts]
+# Default API surface. "interactions" is the other supported builder.
+api = "generate_content"
+model = "gemini-3.8-flash-tts"
+lite_model = "gemini-3.8-flash-lite-tts"
+language = "en"
+default_voice = "Kore"
+default_voice_type = "prebuilt"
+audio_mime = "AUDIO_L16"
+interactions_audio_mime = "audio/l16"
+sample_rate = 24000
+channels = 1
+sample_width_bits = 16
+
+[tts.endpoints]
+generate_content = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+interactions = "https://generativelanguage.googleapis.com/v1beta/interactions"
+voices = "https://generativelanguage.googleapis.com/v1beta/voices"
+
+[tts.fields]
+response_modalities = "responseModalities"
+response_format = "responseFormat"
+speech_config = "speechConfig"
+voice_config = "voiceConfig"
+voice = "voice"
+multi_speaker_voice_config = "multiSpeakerVoiceConfig"
+speaker_voice_configs = "speakerVoiceConfigs"
+prebuilt_voice_config = "prebuiltVoiceConfig"
+voice_name = "voiceName"
+speech_metadata = "speech_metadata"
+style = "style"
+speaker = "speaker"
+mime_type = "mimeType"
+sample_rate = "sampleRate"
+annotation_type = "speech_metadata"
+response_mime_type = "mime_type"
+
+[assemble]
+gap_ms = 200
+crossfade_ms = 12
+write_full_book = true
+
+[cost]
+# Parametric. Standard-tier figures below were copied from the public pricing
+# page on 2026-10-24 for gemini-3.8-flash-tts through 2026-12-31. Override them
+# when prices change. Text-prep image-token cost is intentionally not filled in.
+tts_input_price_per_million = 0.50
+tts_output_price_per_million = 9.00
+audio_tokens_per_second = 25
+seconds_per_tts_request = 8.0
+seconds_per_prep_request = 6.0
