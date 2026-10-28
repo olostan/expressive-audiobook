@@ -43,6 +43,11 @@ citation_max_words = 40
 footnote_read_full_extra_words = 16
 neighbor_chunks = 1
 temperature = 0.4
+max_validation_retries = 2
+max_http_retries = 5
+backoff_initial_seconds = 1.0
+backoff_multiplier = 2.0
+concurrency = 4
 
 allowed_tags = [
   "<laugh>",
@@ -115,13 +120,19 @@ api = "generate_content"
 model = "gemini-3.8-flash-tts"
 lite_model = "gemini-3.8-flash-lite-tts"
 language = "en"
-default_voice = "Kore"
+# Schedar is labeled "Even" on the Gemini prebuilt voice table. That even
+# delivery is the zero-setup voice for long-form narration.
+default_voice = "Schedar"
 default_voice_type = "prebuilt"
 audio_mime = "AUDIO_L16"
 interactions_audio_mime = "audio/l16"
 sample_rate = 24000
 channels = 1
 sample_width_bits = 16
+max_http_retries = 5
+backoff_initial_seconds = 1.0
+backoff_multiplier = 2.0
+concurrency = 2
 
 [tts.endpoints]
 generate_content = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -160,3 +171,5 @@ tts_output_price_per_million = 9.00
 audio_tokens_per_second = 25
 seconds_per_tts_request = 8.0
 seconds_per_prep_request = 6.0
+# Rough text-token stand-in so estimate can run before a live call.
+tokens_per_word = 1.3

@@ -1,6 +1,6 @@
 # Style profile
 
-A style profile is the only literary input besides the PDF. Pass it with `--style-profile path.yaml` (or `.toml`). `--style "free text"` is appended to `free_text` for that run and is not written back to the file.
+A style profile is the only literary input besides the PDF. Pass a file with `--style path.yaml` or `--style-profile path.yaml` (YAML or TOML). A `--style` value that is not a profile path is appended to `free_text` for that run and is not written back to the file. `--voice` overrides the narrator for that run: a prebuilt name such as `Schedar`, a library id, or a `voice_...` id from `audiobook voices design`.
 
 The JSON Schema is `profiles/schema.json`. Two generic examples live in `profiles/examples/`:
 

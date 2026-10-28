@@ -90,6 +90,11 @@ class PrepConfig:
     footnote_read_full_extra_words: int = 16
     neighbor_chunks: int = 1
     temperature: float = 0.4
+    max_validation_retries: int = 2
+    max_http_retries: int = 5
+    backoff_initial_seconds: float = 1.0
+    backoff_multiplier: float = 2.0
+    concurrency: int = 4
     allowed_tags: list[str] = field(default_factory=list)
     backchannels: list[str] = field(default_factory=lambda: ["|mhm|", "|yeah|"])
     style_examples: list[str] = field(default_factory=list)
@@ -131,13 +136,17 @@ class TtsConfig:
     model: str = "gemini-3.8-flash-tts"
     lite_model: str = "gemini-3.8-flash-lite-tts"
     language: str = "en"
-    default_voice: str = "Kore"
+    default_voice: str = "Schedar"
     default_voice_type: str = "prebuilt"
     audio_mime: str = "AUDIO_L16"
     interactions_audio_mime: str = "audio/l16"
     sample_rate: int = 24000
     channels: int = 1
     sample_width_bits: int = 16
+    max_http_retries: int = 5
+    backoff_initial_seconds: float = 1.0
+    backoff_multiplier: float = 2.0
+    concurrency: int = 2
     endpoints: TtsEndpoints = field(default_factory=TtsEndpoints)
     fields: TtsFields = field(default_factory=TtsFields)
 
@@ -156,6 +165,7 @@ class CostConfig:
     audio_tokens_per_second: float = 25
     seconds_per_tts_request: float = 8.0
     seconds_per_prep_request: float = 6.0
+    tokens_per_word: float = 1.3
 
 
 @dataclass
