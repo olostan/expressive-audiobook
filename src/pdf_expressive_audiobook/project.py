@@ -28,7 +28,8 @@ import yaml
 
 from .config import AppConfig, StyleProfile, VoiceMapping, _merge_config, style_from_dict
 from .tts import classify_voice_name
-from .tuning import CHAPTER_TAIL_MS, EXPRESSIVENESS, GAP_MS, PACE, PAUSES, tag_floor, validate
+from .tuning import DEFAULTS as TUNING_DEFAULTS
+from .tuning import chapter_tail_ms, gap_ms, level, tag_floor
 
 PROJECT_FILE = "project.json"
 STYLE_FILE = "style.md"
@@ -45,12 +46,12 @@ DEFAULTS: dict = {
     "narration": {
         "voice": "Schedar",
         "lite": False,
-        "expressiveness": "medium",
-        "pace": "measured",
-        "pause_density": "generous",
+        "expressiveness": TUNING_DEFAULTS["expressiveness"],
+        "pace": TUNING_DEFAULTS["pace"],
+        "pause_density": TUNING_DEFAULTS["pause_density"],
     },
     "audio": {"gap_ms": None, "chapter_tail_ms": None},
-    "style": {"pages": 5},
+    "style": {"pages": 5, "model": None},
     "character_voices": {},
     "overrides": {},
 }
@@ -136,18 +137,18 @@ class Project:
     def tuning(self) -> dict:
         """Validated delivery settings with gaps filled in from pause density."""
         narration = self.data["narration"]
-        expressiveness = validate("expressiveness", narration["expressiveness"], EXPRESSIVENESS)
-        pace = validate("pace", narration["pace"], PACE)
-        pauses = validate("pause_density", narration["pause_density"], PAUSES)
+        expressiveness = level("expressiveness", narration["expressiveness"])
+        pace = level("pace", narration["pace"])
+        pauses = level("pause_density", narration["pause_density"])
         audio = self.data["audio"]
         return {
             "expressiveness": expressiveness,
             "pace": pace,
             "pause_density": pauses,
-            "gap_ms": audio.get("gap_ms") if audio.get("gap_ms") is not None else GAP_MS[pauses],
+            "gap_ms": audio.get("gap_ms") if audio.get("gap_ms") is not None else gap_ms(pauses),
             "chapter_tail_ms": audio.get("chapter_tail_ms")
             if audio.get("chapter_tail_ms") is not None
-            else CHAPTER_TAIL_MS[pauses],
+            else chapter_tail_ms(pauses),
         }
 
     def config(self, base: AppConfig) -> AppConfig:

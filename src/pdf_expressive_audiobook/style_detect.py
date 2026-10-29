@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from pathlib import Path
 
 from .config import AppConfig
 from .ingest import load_chapter, load_manifest
 from .tts import PREBUILT_VOICES
-from .tuning import EXPRESSIVENESS, PACE, PAUSES
 
 # Short descriptors from the prebuilt voice table, to help match characters to voices.
 VOICE_TRAITS = {
@@ -25,32 +25,57 @@ VOICE_TRAITS = {
 MAX_CHARACTER_VOICES = 6
 MIN_SPEAKER_LINES = 5
 
-STYLE_PROMPT = """You are preparing an audiobook of the book excerpted below. The listener owns the book.
-Read the excerpt (the opening pages of the first chapters) and the detected features, then decide how a
-skilled human narrator should perform the whole book.
+STYLE_PROMPT = """You are a seasoned audiobook director writing the narration brief for the book below. The
+listener owns the book. A text-to-speech model will perform it and obeys written direction, so the brief must be
+concrete and specific to THIS book. Generic advice ("be warm and clear") is a failure.
+
+Step 1 - identify the book. Use the metadata, the book's own table of contents, the chapter list and the excerpts.
+If you recognise the book, draw on what you actually know about it: its structure, recurring characters and how
+they differ, running jokes, signature devices, famous set pieces, specialised vocabulary, and where a narrator
+would struggle. If you do not recognise it, say so and work only from the material given. Never invent characters,
+chapters or facts you are unsure of; leave a field empty instead.
+
+Step 2 - decide how a skilled human narrator should perform the whole book, and write that down.
+
+Book metadata:
+{metadata}
 
 Detected features of the whole book:
 {features}
 
-Return JSON only, with these keys:
-- "title": the book's title if it is evident, else null
-- "genre": a short phrase
-- "summary": one or two sentences on what the book is and how it is written
-- "tone": a few words (for example "playful, erudite, warm")
-- "narrator_persona": two or three sentences describing the narrator's voice and attitude
-- "default_delivery_style": a short free-form delivery phrase for ordinary passages (not empty)
-- "literary_traits": 3 to 8 short items, what the narration must preserve (wordplay, dialogue, humor, rigor, ...)
-- "speakers": names of recurring characters in dialogue, if any (else [])
-- "pronunciation_lexicon": up to 10 hard or invented names as [{{"word": "...", "ipa": "/.../"}}]
-- "verbalize": object with "diagrams", "formulas", "footnotes", "citations": one sentence each on how to speak them
-- "speaker_voices": object mapping each recurring speaker from the detected features (at most {max_voices}) to
-  one distinct prebuilt voice that suits the character. The narrator already uses {narrator}; do not reuse it.
-  Choose from: {voices}
-- "recommended": object with "expressiveness" ({expressiveness}), "pace" ({pace}), "pause_density" ({pauses})
-- "notes": markdown, 2 to 6 short paragraphs or bullets of concrete direction: where to smile, where to slow
-  down and let a hard idea land, how to treat dialogue and asides. Do not quote the excerpt.
+The book's own table of contents (it is skipped in the audio):
+{contents}
 
-Excerpt:
+Chapter list as detected (titles can be imperfect):
+{chapters}
+
+Return JSON only, with these keys:
+- "identification": object {{"title", "author", "recognised": true/false, "notes": what you know that matters for narration}}
+- "genre": a short phrase
+- "summary": two or three sentences on what the book is and how it is written
+- "tone": a few words
+- "narrator_persona": three to five vivid sentences: who is speaking and with what attitude
+- "default_delivery_style": a short free-form delivery phrase for ordinary passages (not empty)
+- "literary_traits": 4 to 10 specific items the narration must preserve
+- "speaker_profiles": up to {max_voices} recurring speakers, each {{"name", "description", "vocal_cue", "voice"}}.
+  "name" must be exactly the label from the detected features when one matches. "description" is personality in
+  one or two sentences. "vocal_cue" is how the voice should sound. "voice" is one distinct prebuilt voice that suits
+  the character, chosen from: {voices}. The narrator uses {narrator}; do not reuse it. [] if the book has no dialogue.
+- "performance_directives": 4 to 10 objects {{"title", "when", "how"}}. Each is a directive specific to this book:
+  a structural device and how to make the listener feel it, a tonal register and when it applies, how to move between
+  exposition and dialogue, where to let an idea land in silence, how to treat jokes, asides, quotations and
+  emotional peaks. "when" says where in the book it applies (name chapters or recurring situations). "how" is two
+  to four sentences of concrete delivery instruction.
+- "verbalize": object with "diagrams", "formulas", "footnotes", "citations": two to four sentences each, specific
+  to the kind of content this book has
+- "pronunciation_lexicon": up to 25 hard, foreign or invented names and terms as [{{"word": "...", "ipa": "/.../"}}];
+  omit any whose IPA you are not sure of
+- "recommended": object of numbers from 0 to 1: "expressiveness" (0 plain reading, 1 fully performed),
+  "pace" (0 slowest, 0.5 conversational, 1 fastest), "pause_density" (0 only punctuation pauses, 1 frequent
+  room to think)
+- "notes": optional markdown with anything else a narrator must know. Do not quote the excerpts.
+
+Excerpts:
 {excerpt}
 """
 
@@ -97,13 +122,19 @@ def _merge_case(speakers: Counter) -> dict[str, int]:
     return {best[key][1]: total for key, total in totals.most_common() if total >= MIN_SPEAKER_LINES}
 
 
+def _speaker_key(name) -> str:
+    """'The Tortoise (Mr. T)' and 'Tortoise' are the same speaker."""
+    text = re.sub(r"\(.*?\)", "", str(name)).strip().casefold()
+    return re.sub(r"^(?:the|a|an)\s+", "", text)
+
+
 def assign_character_voices(narrator: str, speakers: list[str], suggested: dict | None = None) -> dict[str, str]:
     """Distinct prebuilt voices for recurring speakers. Suggestions are used when valid."""
     taken = {narrator}
     result: dict[str, str] = {}
-    suggested = {str(k).casefold(): str(v) for k, v in (suggested or {}).items()}
+    suggested = {_speaker_key(k): str(v) for k, v in (suggested or {}).items()}
     for name in speakers[:MAX_CHARACTER_VOICES]:
-        voice = suggested.get(name.casefold())
+        voice = suggested.get(_speaker_key(name))
         if voice not in PREBUILT_VOICES or voice in taken:
             voice = next((v for v in sorted(VOICE_TRAITS) if v in PREBUILT_VOICES and v not in taken), None)
         if voice is None:
@@ -135,24 +166,87 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + " …"
 
 
-def detect_style(ingest_dir: Path, config: AppConfig, client, pages: int = 5, narrator: str = "Schedar") -> dict:
-    """Ask the text model for a style description. Returns its parsed JSON."""
+def chapter_titles(ingest_dir: Path, limit: int = 80) -> str:
+    manifest = load_manifest(ingest_dir)
+    rows = [f"{item['index']}. {item['title'][:70]}" for item in (manifest.get("chapters") or [])[:limit]]
+    return "\n".join(rows) or "(none)"
+
+
+def representative_excerpts(ingest_dir: Path, per_chapter: int = 2200) -> str:
+    """Short passages from other parts of the book: a dialogue-heavy chapter, a technical one, a middle one."""
+    manifest = load_manifest(ingest_dir)
+    rows = []
+    for item in manifest.get("chapters") or []:
+        chapter = load_chapter(Path(ingest_dir) / item["path"])
+        prose = [b for b in chapter.blocks if b.text.strip() and b.kind != "scanned_page"]
+        if len(prose) < 3:
+            continue
+        rows.append(
+            {
+                "item": item,
+                "blocks": prose,
+                "dialogue": sum(1 for b in prose if b.speaker),
+                "technical": sum(1 for e in chapter.elements if e.kind in {"formula", "figure"}),
+            }
+        )
+    if len(rows) < 2:
+        return ""
+    chosen: list[tuple[str, dict]] = []
+    rest = rows[1:]
+    for label, key in (("dialogue-heavy", "dialogue"), ("technical", "technical")):
+        best = max(rest, key=lambda r: r[key], default=None)
+        if best and best[key] > 0 and all(best is not c[1] for c in chosen):
+            chosen.append((label, best))
+    middle = rows[int(len(rows) * 0.6)]
+    if all(middle is not c[1] for c in chosen):
+        chosen.append(("later in the book", middle))
+    parts = []
+    for label, row in chosen:
+        text, size = [], 0
+        for block in row["blocks"]:
+            line = f"[{block.speaker}] {block.text.strip()}" if block.speaker else block.text.strip()
+            text.append(line)
+            size += len(line)
+            if size >= per_chapter:
+                break
+        parts.append(f"--- {label}: chapter {row['item']['index']} \"{row['item']['title'][:60]}\" ---\n" + "\n".join(text))
+    return "\n\n".join(parts)
+
+
+def detect_style(
+    ingest_dir: Path,
+    config: AppConfig,
+    client,
+    pages: int = 5,
+    narrator: str = "Schedar",
+    model: str | None = None,
+) -> dict:
+    """Ask the text model for a narration brief. Returns its parsed JSON."""
     features = book_features(ingest_dir)
-    excerpt = sample_excerpt(ingest_dir, pages)
-    if not excerpt.strip():
+    manifest = load_manifest(ingest_dir)
+    opening = sample_excerpt(ingest_dir, pages, max_chars=6000)
+    if not opening.strip():
         raise RuntimeError("No narratable text found in the first pages to analyse")
+    excerpts = f"--- the opening pages ---\n{opening}"
+    more = representative_excerpts(ingest_dir)
+    if more:
+        excerpts += "\n\n" + more
+    metadata = {k: manifest.get(k) for k in ("title", "author", "source_pdf") if manifest.get(k)}
+    if metadata.get("source_pdf"):
+        metadata["file_name"] = Path(metadata.pop("source_pdf")).name
+    brief = {k: v for k, v in features.items() if k != "speaker_counts"}
     prompt = STYLE_PROMPT.format(
-        features=json.dumps(features, ensure_ascii=False, indent=2),
-        excerpt=excerpt,
-        expressiveness=" | ".join(EXPRESSIVENESS),
-        pace=" | ".join(PACE),
-        pauses=" | ".join(PAUSES),
+        metadata=json.dumps(metadata, ensure_ascii=False),
+        features=json.dumps({**brief, "speakers_by_lines": features["speaker_counts"]}, ensure_ascii=False, indent=2),
+        contents=(manifest.get("contents_text") or "(not available)")[:3500],
+        chapters=chapter_titles(ingest_dir),
+        excerpt=excerpts,
         max_voices=MAX_CHARACTER_VOICES,
         narrator=narrator,
         voices=", ".join(f"{name} ({VOICE_TRAITS[name]})" for name in sorted(VOICE_TRAITS) if name != narrator),
     )
     request = {
-        "model": config.prep.model,
+        "model": model or config.prep.model,
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"responseMimeType": "application/json", "temperature": 0.3},
     }

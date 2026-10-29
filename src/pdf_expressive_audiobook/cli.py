@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -143,6 +144,16 @@ def main(argv: list[str] | None = None, *, prep_client=None, tts_client=None) ->
         print(Ui(sys.stderr).paint(str(exc), "red") if sys.stderr.isatty() else str(exc), file=sys.stderr)
         if isinstance(exc, ChunkPrepFailed):
             print("Other chunks were saved. Run the same command again to retry only this one.", file=sys.stderr)
+        return 1
+    except Exception as exc:  # API and network errors: a short message, not a traceback
+        if os.environ.get("AUDIOBOOK_DEBUG"):
+            raise
+        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        print(
+            "Finished work is saved; run the same command again to retry. "
+            "Details: prep/errors/<chunk>.txt in the project, or set AUDIOBOOK_DEBUG=1 for a traceback.",
+            file=sys.stderr,
+        )
         return 1
     except SystemExit as exc:
         if exc.code in (None, 0):

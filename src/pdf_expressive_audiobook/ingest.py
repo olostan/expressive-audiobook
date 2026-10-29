@@ -136,6 +136,10 @@ def extract_pdf(
         pages = [_read_page(document[index], index + 1) for index in range(page_count)]
         _strip_running_matter(pages, config)
         skipped = _contents_pages(pages) if config.skip_contents else {}
+        contents_text = "\n".join(
+            line.text.strip() for page in pages if page.number in skipped for line in page.lines if line.text.strip()
+        )[:8000]
+        author = str((document.metadata or {}).get("author") or "").strip()
         ranges, detection, outline_used = _detect_ranges(document, pages, set(skipped))
         ranges = _drop_skipped(ranges, set(skipped))
         _blank_pages(pages, set(skipped))
@@ -175,6 +179,8 @@ def extract_pdf(
         "detection": result.detection,
         "warnings": result.warnings,
         "page_count": page_count,
+        "author": author or None,
+        "contents_text": contents_text,
         "skipped_pages": result.skipped_pages,
         "chapters": [
             {

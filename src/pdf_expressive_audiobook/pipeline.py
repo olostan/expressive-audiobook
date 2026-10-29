@@ -570,9 +570,10 @@ def _prep_one(
             image_root=image_root,
             request=request,
         )
-    except Exception:
+    except Exception as exc:
         if progress:
             progress("failed", chunk.id)
+        _record_failure(config, chunk.id, exc)
         raise
     atomic_write(dest, json.dumps(output, ensure_ascii=False, indent=2) + "\n")
     _write_fingerprint(dest, stamp)
@@ -594,6 +595,17 @@ def _gather(pool, futures) -> tuple[list, list]:
         pool.shutdown(wait=False, cancel_futures=True)
         raise
     return results, failures
+
+
+def _record_failure(config: AppConfig, chunk_id: str, exc: Exception) -> None:
+    """Keep the reason for a failed chunk beside its request so it can be inspected later."""
+    import traceback
+
+    try:
+        text = "".join(traceback.format_exception(exc))
+        atomic_write(Path(config.paths.prep) / "errors" / f"{chunk_id}.txt", text)
+    except OSError:
+        pass
 
 
 def _fingerprint_path(dest: Path) -> Path:

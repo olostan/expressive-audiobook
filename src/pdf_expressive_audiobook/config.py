@@ -97,9 +97,9 @@ class PrepConfig:
     backoff_multiplier: float = 2.0
     concurrency: int = 4
     # Delivery tuning. A project's tuning block sets these; see tuning.py.
-    expressiveness: str = "medium"
-    pace: str = "normal"
-    pause_density: str = "normal"
+    expressiveness: float = 0.5
+    pace: float = 0.5
+    pause_density: float = 0.4
     min_tags_per_100_words: float = 0.0
     allowed_tags: list[str] = field(default_factory=list)
     backchannels: list[str] = field(default_factory=lambda: ["|mhm|", "|yeah|"])
@@ -228,6 +228,7 @@ class StyleProfile:
         )
 
     def render(self) -> str:
+        """Text for the prep prompt. Voices are left out: they change speech, not the narration text."""
         lines = [
             f"id: {self.id}",
             f"narrator_persona: {self.narrator_persona.strip()}",
@@ -239,9 +240,6 @@ class StyleProfile:
         lines.append("pronunciation_lexicon:")
         for entry in self.pronunciation_lexicon:
             lines.append(f"  - {entry.word} {entry.ipa} {entry.note}".rstrip())
-        lines.append("character_voices:")
-        for name, voice in self.character_voices.items():
-            lines.append(f"  {name}: {voice.voice} ({voice.voice_type or 'unspecified'})")
         lines.append("verbalize:")
         for key, value in self.verbalize.items():
             lines.append(f"  {key}: {value.strip()}")

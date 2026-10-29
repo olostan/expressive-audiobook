@@ -36,7 +36,7 @@ from .project import (
 )
 from .style_detect import assign_character_voices, book_features, detect_style, fallback_style
 from .tts import plan_tts_requests
-from .tuning import EXPRESSIVENESS, PACE, PAUSES
+from .tuning import level
 from .ui import Ui
 
 GENERATED = ("ingest", "chunks", "prep", "tts", "audio", "samples")
@@ -126,7 +126,12 @@ def import_book(
         if client is not None:
             try:
                 detected = detect_style(
-                    project.ingest_dir, config, client, pages, project.data["narration"]["voice"]
+                    project.ingest_dir,
+                    config,
+                    client,
+                    pages,
+                    project.data["narration"]["voice"],
+                    model=project.data["style"].get("model"),
                 )
                 ai_used = True
             except Exception as exc:
@@ -140,7 +145,8 @@ def import_book(
             project.data["character_voices"] = assign_character_voices(
                 project.data["narration"]["voice"],
                 list(features.get("speaker_counts") or {}),
-                detected.get("speaker_voices"),
+                {p.get("name"): p.get("voice") for p in detected.get("speaker_profiles") or [] if isinstance(p, dict)}
+                or detected.get("speaker_voices"),
             )
         ui.ok(f"wrote {project.style_path}")
     project.save()
@@ -151,16 +157,23 @@ def import_book(
 def _write_style(project: Project, detected: dict) -> None:
     front = {
         "id": project.name,
-        "narrator_persona": str(detected.get("narrator_persona") or "").strip(),
-        "default_delivery_style": str(detected.get("default_delivery_style") or "").strip(),
+        "narrator_persona": " ".join(str(detected.get("narrator_persona") or "").split()),
+        "default_delivery_style": " ".join(str(detected.get("default_delivery_style") or "").split()),
         "literary_traits": [str(x) for x in detected.get("literary_traits") or []],
         "pronunciation_lexicon": [
             {"word": str(x.get("word", "")), "ipa": str(x.get("ipa", ""))}
             for x in detected.get("pronunciation_lexicon") or []
             if isinstance(x, dict) and x.get("word")
         ],
-        "verbalize": {str(k): str(v) for k, v in (detected.get("verbalize") or {}).items()},
+        "verbalize": {str(k): " ".join(str(v).split()) for k, v in (detected.get("verbalize") or {}).items()},
     }
+    if project.style_path.exists():
+        shutil.copyfile(project.style_path, project.style_path.with_name("style.previous.md"))
+    atomic_write(project.style_path, render_style_md(front, _style_body(detected)))
+
+
+def _style_body(detected: dict) -> str:
+    sections = []
     head = []
     if detected.get("genre"):
         head.append(f"**Genre:** {detected['genre']}")
@@ -168,19 +181,38 @@ def _write_style(project: Project, detected: dict) -> None:
         head.append(f"**Tone:** {detected['tone']}")
     if detected.get("summary"):
         head.append(str(detected["summary"]).strip())
-    speakers = [str(x) for x in detected.get("speakers") or []]
-    if speakers:
-        head.append("**Recurring speakers:** " + ", ".join(speakers))
-    notes = "\n\n".join(head + [str(detected.get("notes") or "").strip()]).strip()
-    atomic_write(project.style_path, render_style_md(front, notes))
+    sections.append("\n\n".join(head))
+    profiles = [p for p in detected.get("speaker_profiles") or [] if isinstance(p, dict) and p.get("name")]
+    if profiles:
+        lines = ["**Recurring Speakers & Vocal Profiles:**", ""]
+        for p in profiles:
+            cue = f" *Vocal cue: {p['vocal_cue'].strip()}*" if p.get("vocal_cue") else ""
+            lines.append(f"- **{p['name']}:** {str(p.get('description') or '').strip()}{cue}")
+        sections.append("\n".join(lines))
+    elif detected.get("speakers"):
+        sections.append("**Recurring speakers:** " + ", ".join(str(x) for x in detected["speakers"]))
+    directives = [d for d in detected.get("performance_directives") or [] if isinstance(d, dict) and d.get("how")]
+    if directives:
+        lines = ["---", "", "### Performance & Pacing Directives", ""]
+        for number, d in enumerate(directives, start=1):
+            title = str(d.get("title") or "").strip() or "Direction"
+            when = f" *({str(d['when']).strip()})*" if d.get("when") else ""
+            lines.append(f"{number}. **{title}**{when}")
+            lines.append(f"   {str(d['how']).strip()}")
+            lines.append("")
+        sections.append("\n".join(lines).rstrip())
+    if detected.get("notes"):
+        sections.append(str(detected["notes"]).strip())
+    return "\n\n".join(s for s in sections if s.strip())
 
 
 def _apply_recommendations(project: Project, recommended: dict) -> None:
     narration = project.data["narration"]
-    for key, table in (("expressiveness", EXPRESSIVENESS), ("pace", PACE), ("pause_density", PAUSES)):
-        value = recommended.get(key)
-        if value in table:
-            narration[key] = value
+    for key in ("expressiveness", "pace", "pause_density"):
+        try:
+            narration[key] = level(key, recommended[key])
+        except (KeyError, ValueError):
+            pass
 
 
 def _report_import(ui: Ui, project: Project, manifest: dict, features: dict, styled: bool, ai: bool) -> None:

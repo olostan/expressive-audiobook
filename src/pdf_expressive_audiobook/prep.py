@@ -156,14 +156,24 @@ def prepare_chunk_output(
     attempts = config.prep.max_validation_retries + 1
     errors: list[str] = []
     previous = None
+    use_feedback = True
     for attempt in range(attempts):
-        payload = request if attempt == 0 else feedback_request(request, errors, previous)
+        payload = request if attempt == 0 or not use_feedback else feedback_request(request, errors, previous)
         try:
             output = client.generate(payload)
         except ModelOutputError as exc:
             errors = [str(exc)]
             previous = exc.raw
             continue
+        except Exception as exc:
+            # The API rejected the retry-with-feedback form of the request. Ask again with the
+            # original request instead of losing the chunk.
+            code = getattr(exc, "code", None)
+            if attempt > 0 and use_feedback and isinstance(code, int) and 400 <= code < 500 and code != 429:
+                use_feedback = False
+                errors = [f"the retry request was rejected by the API ({code}); asking again without feedback"]
+                continue
+            raise
         errors = schema_errors(output)
         if not errors:
             errors = validate_prep_output(output, chunk, config)

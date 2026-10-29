@@ -72,9 +72,9 @@ Stop with Ctrl-C at any time and run the same command again. Each chunk of narra
 {
   "narration": {
     "voice": "Schedar",
-    "expressiveness": "medium",
-    "pace": "measured",
-    "pause_density": "generous"
+    "expressiveness": 0.6,
+    "pace": 0.3,
+    "pause_density": 0.8
   },
   "audio": { "gap_ms": null, "chapter_tail_ms": null },
   "character_voices": { "Achilles": "Puck" },
@@ -84,10 +84,12 @@ Stop with Ctrl-C at any time and run the same command again. Each chunk of narra
 
 | Setting | Values | Effect |
 | --- | --- | --- |
-| `expressiveness` | `low`, `medium`, `high` | How often the narrator styles a passage and adds inline tags. If a passage comes back too flat, it is sent back once for more performance. |
-| `pace` | `brisk`, `normal`, `measured`, `slow` | Asks for an unhurried style on most turns. |
-| `pause_density` | `minimal`, `normal`, `generous` | How many `<short pause>` tags to write (a longer pause is two in a row; the model sometimes speaks `<long pause>` aloud). Also sets the default silence between passages (250 / 500 / 900 ms) and at the end of a chapter. |
-| `gap_ms`, `chapter_tail_ms` | number or `null` | Silence between passages and after a chapter. `null` follows `pause_density`. |
+| `expressiveness` | 0 to 1 | 0 reads plainly; 1 is fully performed. Sets how often turns get a style and inline tags (about 1.5 tags per 100 words at 0.6). A passage that comes back too flat is sent back once for more performance. |
+| `pace` | 0 to 1 | 0 is slowest, about 0.5 is conversational, 1 is fastest. Below 0.4 the narrator is asked for an unhurried style. |
+| `pause_density` | 0 to 1 | 0 means only punctuation pauses; 1 means frequent `<short pause>` tags (two in a row for a longer pause; the model sometimes speaks `<long pause>` aloud). Also sets the default silence between passages (250 ms at 0, 900 ms at 1) and at the end of a chapter. |
+| `gap_ms`, `chapter_tail_ms` | number or `null` | Silence between passages and after a chapter. `null` follows `pause_density`.
+
+The old words (`low`/`medium`/`high`, `slow`/`measured`/`normal`/`brisk`, `minimal`/`normal`/`generous`) still work and map to numbers. |
 | `voice`, `lite` | a Gemini voice, true/false | Narrator voice; `lite` uses the cheaper speech model. |
 | `character_voices` | speaker to voice | Voices for characters in dialogue. |
 | `overrides` | any section of `config/default.toml` | Per-book changes to models, chunk length, retries, and so on. |
