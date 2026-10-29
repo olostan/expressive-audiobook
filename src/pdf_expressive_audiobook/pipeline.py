@@ -14,6 +14,7 @@ from .audio import PcmClip, assemble_clips, load_pcm, write_wav
 from .chunking import chunk_chapter, load_chapter_jsonl, write_chapter_jsonl
 from .config import AppConfig, StyleProfile, load_config
 from .ingest import extract_pdf, load_chapter, load_manifest
+from .ingest_text import extract_text, is_text_source
 from .models import Chunk, to_jsonable
 from .project import atomic_write, fingerprint
 from .prep import (
@@ -27,7 +28,10 @@ from .tts import estimate_tts_cost, plan_tts_requests
 
 
 def run_extract(pdf: Path, config: AppConfig, *, chapter: int | None = None, ocr_fn=None) -> list[Path]:
-    document = extract_pdf(pdf, config.paths.ingest, config.ingest, ocr_fn=ocr_fn)
+    if is_text_source(pdf):
+        document = extract_text(pdf, config.paths.ingest, config.ingest)
+    else:
+        document = extract_pdf(pdf, config.paths.ingest, config.ingest, ocr_fn=ocr_fn)
     paths = []
     for item in document.chapters:
         if chapter is not None and item.index != chapter:

@@ -29,7 +29,8 @@ from .prep import ChunkPrepFailed, GeminiTextPrepClient
 from .project import ProjectError, list_projects, projects_dir, resolve_project
 from .tts import GeminiTtsClient, classify_voice_name
 from .ui import Ui
-from .workflow import generate_book, import_book, parse_chapters, prepare_book, project_status
+from .sound_cli import add_parsers as add_sound_parsers, run_library, run_models, run_sound
+from .workflow import AUDIENCES, generate_book, import_book, parse_chapters, prepare_book, project_status
 
 
 def main(argv: list[str] | None = None, *, prep_client=None, tts_client=None) -> int:
@@ -42,18 +43,24 @@ def main(argv: list[str] | None = None, *, prep_client=None, tts_client=None) ->
     parser.add_argument("--quiet", action="store_true", help="Print only errors and results")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    imp = sub.add_parser("import", help="Import a PDF into a new project (chapters, project.json, style.md)")
-    imp.add_argument("--pdf", required=True, help="Path to the book PDF")
+    imp = sub.add_parser("import", help="Import a PDF, Markdown or text file into a new project (chapters, project.json, style.md)")
+    imp.add_argument("--source", "--pdf", dest="pdf", required=True, help="Path to the book: .pdf, .md or .txt")
     imp.add_argument("--name", required=True, help="Project name; becomes projects/<name>/")
     imp.add_argument("--force", action="store_true", help="Extract again, even if the PDF is unchanged")
     imp.add_argument("--restyle", action="store_true", help="Regenerate style.md and the suggested tuning")
     imp.add_argument("--style-pages", type=int, default=None, help="Pages to analyse for style (default 5)")
+    imp.add_argument("--non-interactive", action="store_true", help="Never ask questions; use the suggestions and flags")
+    imp.add_argument("--music", type=float, default=None, metavar="0-1", help="Background music level (0 = none)")
+    imp.add_argument("--sfx", type=float, default=None, metavar="0-1", help="Sound-effect intensity (0 = none)")
+    imp.add_argument("--audience", choices=AUDIENCES, default=None, help="Who the book is for (default: detected)")
 
     prepare = sub.add_parser("prepare", help="Write narration text, styles and tags for chapters, to review")
     _add_selection(prepare)
 
     generate = sub.add_parser("generate", aliases=["gen"], help="Prepare if needed, then speak and assemble audio")
     _add_selection(generate)
+
+    add_sound_parsers(sub)
 
     status = sub.add_parser("status", help="Show per-chapter progress of a project")
 
@@ -167,6 +174,8 @@ def main(argv: list[str] | None = None, *, prep_client=None, tts_client=None) ->
 def _dispatch(args: argparse.Namespace, *, prep_client, tts_client) -> int:
     config = resolve_config(args.config)
     ui = Ui(quiet=getattr(args, "quiet", False))
+    if getattr(args, "non_interactive", False):
+        ui.interactive = False
     base = projects_dir(getattr(args, "projects_dir", None))
     if args.command == "import":
         project = import_book(
@@ -179,8 +188,17 @@ def _dispatch(args: argparse.Namespace, *, prep_client, tts_client) -> int:
             force=args.force,
             restyle=args.restyle,
             style_pages=args.style_pages,
+            music=args.music,
+            sfx=args.sfx,
+            audience=args.audience,
         )
         return 0
+    if args.command == "library":
+        return run_library(args, config, ui)
+    if args.command == "models":
+        return run_models(args, config, ui)
+    if args.command == "sound":
+        return run_sound(args, resolve_project(getattr(args, "project", None), base), ui)
     if args.command == "projects":
         names = list_projects(base)
         if not names:

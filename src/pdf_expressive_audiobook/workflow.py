@@ -15,6 +15,7 @@ from .chunking import load_chapter_jsonl
 from .config import AppConfig
 from .export import ExportError, convert, ffmpeg_path, target_path
 from .ingest import load_manifest
+from .ingest_text import is_text_source
 from .pipeline import (
     _clip_path,
     _load_prep_outputs,
@@ -36,7 +37,25 @@ from .project import (
     projects_dir,
     render_style_md,
 )
+from .library import Library
+from .score import (
+    ChapterMusic,
+    SoundSet,
+    audience_of,
+    chapter_seed,
+    cue_budget,
+    ensure_cues,
+    ensure_music,
+    level_db,
+    music_wanted,
+    numbered_turns,
+    plan_music,
+    plan_sfx,
+    sfx_wanted,
+)
+from .soundgen import SoundGenError
 from .style_detect import assign_character_voices, book_features, detect_style, fallback_style
+from .timeline import chapter_timeline
 from .tts import plan_tts_requests
 from .tuning import level
 from .ui import Ui
@@ -78,10 +97,13 @@ def import_book(
     force: bool = False,
     restyle: bool = False,
     style_pages: int | None = None,
+    music: float | None = None,
+    sfx: float | None = None,
+    audience: str | None = None,
 ) -> Project:
     pdf = Path(pdf).expanduser()
     if not pdf.exists():
-        raise ProjectError(f"PDF not found: {pdf}")
+        raise ProjectError(f"File not found: {pdf}")
     base = projects_dir(base_dir)
     root = base / name
     fresh = not (root / PROJECT_FILE).exists()
@@ -94,7 +116,7 @@ def import_book(
         if digest != project.data.get("source_sha256"):
             if not force:
                 raise ProjectError(
-                    f"Project '{name}' was imported from a different PDF. "
+                    f"Project '{name}' was imported from a different file. "
                     "Use --force to replace it (generated files are deleted), or pick another --name."
                 )
             for folder in GENERATED:
@@ -105,9 +127,9 @@ def import_book(
 
     manifest_path = project.ingest_dir / "manifest.json"
     if manifest_path.exists() and not force:
-        ui.ok("book already extracted (same PDF); use --force to extract again")
+        ui.ok("book already extracted (same file); use --force to extract again")
     else:
-        ui.info("🔎 reading pages, chapters, figures, formulas, footnotes…")
+        ui.info("🔎 reading chapters…" if is_text_source(pdf) else "🔎 reading pages, chapters, figures, formulas, footnotes…")
         run_extract(pdf, config)
         ui.ok("extracted")
     manifest = load_manifest(project.ingest_dir)
@@ -143,6 +165,8 @@ def import_book(
         detected = detected or fallback_style(features)
         _write_style(project, detected)
         _apply_recommendations(project, detected.get("recommended") or {})
+        _confirm_tuning(ui, project)
+        _choose_soundscape(ui, project, detected, music=music, sfx=sfx, audience=audience)
         if not project.data.get("character_voices"):
             project.data["character_voices"] = assign_character_voices(
                 project.data["narration"]["voice"],
@@ -217,17 +241,79 @@ def _apply_recommendations(project: Project, recommended: dict) -> None:
             pass
 
 
+def _confirm_tuning(ui: Ui, project: Project) -> None:
+    """Show the suggested delivery and let the listener adjust it. Silent when nobody is there to ask."""
+    if not ui.interactive:
+        return
+    narration = project.data["narration"]
+    ui.banner("🎛️", "Suggested delivery")
+    ui.kv("", f"expressiveness={narration['expressiveness']}  pace={narration['pace']}  pause_density={narration['pause_density']}")
+    if ui.confirm("Use these?", True):
+        return
+    for key, hint in (("expressiveness", "0 plain reading, 1 fully performed"), ("pace", "0 slowest, 0.5 conversational, 1 fastest"),
+                      ("pause_density", "0 punctuation only, 1 frequent pauses")):
+        narration[key] = level(key, ui.ask_level(f"{key} ({hint})", float(narration[key])))
+
+
+AUDIENCES = ("kids", "young_adult", "general", "technical")
+
+
+def _choose_soundscape(ui: Ui, project: Project, detected: dict, *, music, sfx, audience) -> None:
+    """Music and effects cost generation time (or money) and not every book wants them, so they start off.
+
+    Flags set them directly. Otherwise, when someone is at the keyboard, show what the book suggests and ask.
+    """
+    scape = project.data["soundscape"]
+    suggested = detected.get("soundscape") if isinstance(detected.get("soundscape"), dict) else {}
+    want_music = suggested.get("music") if isinstance(suggested.get("music"), dict) else {}
+    want_sfx = suggested.get("sfx") if isinstance(suggested.get("sfx"), dict) else {}
+    found = str(detected.get("audience") or "").strip().lower()
+    scape["audience"] = audience or (found if found in AUDIENCES else scape.get("audience") or "general")
+    if music is not None:
+        scape["music"].update(enabled=music > 0, level=music)
+    if sfx is not None:
+        scape["sfx"].update(enabled=sfx > 0, intensity=sfx)
+    if music is not None and sfx is not None:
+        return
+    if not ui.interactive:
+        if want_music.get("recommended") or want_sfx.get("recommended"):
+            ui.hint("This book suits background music/effects. Turn them on with: "
+                    f"audiobook sound --project {project.name} --music 0.4 --sfx 0.3")
+        return
+    ui.banner("🎼", "Music and sound effects", f"audience: {scape['audience']}")
+    scape["audience"] = ui.ask("Who is this for? (kids, young_adult, general, technical)", scape["audience"]) or scape["audience"]
+    if music is None:
+        reason = want_music.get("reason") or ""
+        if reason:
+            ui.info(f"Suggestion: {reason}")
+        if ui.confirm("Add soft background music? (generated locally; costs time, not money)", bool(want_music.get("recommended"))):
+            hint = ui.ask("Style of music", str(want_music.get("style") or ""))
+            level = ui.ask_level("How noticeable, from 0 (barely there) to 1 (very noticeable)?", 0.4)
+            scape["music"].update(enabled=level > 0, level=level, style_hint=hint)
+    if sfx is None:
+        reason = want_sfx.get("reason") or ""
+        if reason:
+            ui.info(f"Suggestion: {reason}")
+        if ui.confirm("Add occasional sound effects?", bool(want_sfx.get("recommended"))):
+            level = ui.ask_level("How often and how noticeable, from 0 (none) to 1 (very noticeable)?", 0.4)
+            scape["sfx"].update(enabled=level > 0, intensity=level)
+
+
 def _report_import(ui: Ui, project: Project, manifest: dict, features: dict, styled: bool, ai: bool) -> None:
     chapters = manifest.get("chapters") or []
     ui.banner("✅", "Import complete", project.data.get("title") or project.name)
     ui.kv("chapters", f"{len(chapters)} ({manifest.get('detection')} detection)")
-    ui.kv("pages", manifest.get("page_count") or "?")
+    if manifest.get("source_kind") in {"markdown", "text"}:
+        ui.kv("source", f"{manifest['source_kind']} file")
+    else:
+        ui.kv("pages", manifest.get("page_count") or "?")
     skipped = manifest.get("skipped_pages") or []
     if skipped:
         pages = ", ".join(str(item["page"]) for item in skipped[:12])
         ui.kv("skipped", f"{len(skipped)} contents page(s): {pages}")
     ui.kv("narration", f"~{features['minutes_estimate']} min · {features['words']:,} words")
-    ui.kv("content", f"{features['figures']} figures · {features['formulas']} formulas · {features['footnotes']} footnotes")
+    if features["figures"] or features["formulas"] or features["footnotes"]:
+        ui.kv("content", f"{features['figures']} figures · {features['formulas']} formulas · {features['footnotes']} footnotes")
     voices = project.data.get("character_voices") or {}
     if voices:
         ui.kv("speakers", ", ".join(f"{name} → {voice}" for name, voice in voices.items()))
@@ -247,6 +333,9 @@ def _report_import(ui: Ui, project: Project, manifest: dict, features: dict, sty
     ui.kv("", f"voice={project.data['narration']['voice']}  expressiveness={tuning['expressiveness']}  "
               f"pace={tuning['pace']}  pause_density={tuning['pause_density']}")
     ui.kv("", f"gap between passages={tuning['gap_ms']} ms  chapter ending silence={tuning['chapter_tail_ms']} ms")
+    scape = project.data["soundscape"]
+    ui.kv("soundscape", f"music {scape['music']['level'] if scape['music']['enabled'] else 'off'} · "
+                        f"effects {scape['sfx']['intensity'] if scape['sfx']['enabled'] else 'off'} · audience {scape.get('audience') or 'general'}")
     ui.kv("style.md", f"{project.style_path}" + (" (written by Gemini)" if ai else " (neutral, edit me)" if styled else " (kept)"))
     ui.info("")
     ui.hint(f"Review/tune the two files, then: audiobook prepare --project {project.name} --chapter N")
@@ -364,6 +453,7 @@ def generate_book(
         project, base_config, prep_client, ui=ui, chapters=chapters, sample=sample, force=force, dry_run=dry_run, hint=False
     )
     if dry_run:
+        _sound_estimate(project, config, result["chapters"], result["chunks"], ui)
         return result
     selected = result["chapters"]
     plan = _plan(config, profile, selected, sample)
@@ -389,15 +479,17 @@ def generate_book(
     finally:
         progress.close()
 
-    ui.banner("🎧", "Assembling audio")
     outputs = _load_prep_outputs(config, None)
+    sounds = _prepare_sounds(project, config, profile, prep_client, selected, plan, outputs, ui, force=force)
+
+    ui.banner("🎧", "Assembling audio")
     files: list[Path] = []
     manifest = load_manifest(project.ingest_dir)
     titles = {int(item["index"]): item["title"][:100] for item in manifest["chapters"]}
     base_tags = {"album": project.data.get("title") or project.name, "artist": manifest.get("author") or ""}
     base_tags = {k: v for k, v in base_tags.items() if v}
     a = config.assemble
-    jobs: dict[int, tuple[Path, list[Path], float, str]] = {}
+    jobs: dict[int, tuple[Path, list[Path], float, str, object]] = {}
     for index in selected:
         clips = _expected_clips(config, profile, plan[index], outputs)
         if sample:
@@ -411,9 +503,16 @@ def generate_book(
             ui.warn(f"chapter {index}: {len(missing)} clip(s) missing; not assembled")
             continue
         stamp = _stamp(config, [(p.name, p.stat().st_size, p.stat().st_mtime_ns) for p in clips], tail)
-        jobs[index] = (dest, clips, tail, stamp)
+        if sounds:
+            stamp = fingerprint(stamp, _sound_signature(project, config, sounds.get(index)))
+            build = lambda d=dest, c=clips, t=tail, i=index: _build_mixed(
+                project, config, profile, plan[i], outputs, c, d, t, sounds.get(i), i
+            )
+        else:
+            build = lambda d=dest, c=clips, t=tail: _build(config, c, d, t)
+        jobs[index] = (dest, clips, tail, stamp, build)
         tags = {"title": titles.get(index, f"Chapter {index}"), "track": str(index), **base_tags}
-        made = _publish(ui, config, dest, stamp, lambda d=dest, c=clips, t=tail: _build(config, c, d, t), tags)
+        made = _publish(ui, config, dest, stamp, build, tags)
         files.extend(made)
         ui.ok(f"chapter {index}: {made[-1]}")
     if not sample and chapters is None and len(jobs) > 1 and a.write_full_book:
@@ -421,10 +520,16 @@ def generate_book(
         stamp = fingerprint([job[3] for job in jobs.values()], a.gap_ms, a.crossfade_ms)
 
         def build_book() -> None:
-            for dest, clips, tail, _ in jobs.values():  # a dropped chapter WAV is rebuilt from its clips
+            for dest, clips, tail, _, build in jobs.values():  # a dropped chapter WAV is rebuilt from its clips
                 if not dest.exists():
-                    _build(config, clips, dest, tail)
-            _build(config, [job[0] for job in jobs.values()], book, 0)
+                    build()
+            if sounds:
+                from .mixer import decode, join_chapters, write_wav as write_stereo
+
+                pieces = [decode(job[0], config.sound.sample_rate) for job in jobs.values()]
+                write_stereo(book, join_chapters(pieces), config.sound.sample_rate)
+            else:
+                _build(config, [job[0] for job in jobs.values()], book, 0)
 
         made = _publish(ui, config, book, stamp, build_book, {"title": base_tags.get("album", project.name), **base_tags})
         files.extend(made)
@@ -569,3 +674,107 @@ def _tuning_line(project: Project) -> str:
 
 def _chapter_flag(chapters: list[int] | None) -> str:
     return "--all" if chapters is None else "--chapter " + ",".join(map(str, chapters))
+
+
+# ---------------------------------------------------------------- music and sound effects
+
+SA3_MUSIC_SPEED = 6.0  # seconds of music made per second on Apple Silicon (measured)
+
+
+def _sound_estimate(project: Project, config: AppConfig, chapters: list[int], chunks: list, ui: Ui) -> None:
+    music, sfx = music_wanted(project), sfx_wanted(project)
+    if not (music or sfx):
+        return
+    s = config.sound
+    if music:
+        tracks = len(chapters) * s.music_variants
+        minutes = tracks * s.music_seconds / SA3_MUSIC_SPEED / 60
+        ui.kv("music", f"up to {tracks} tracks of {s.music_seconds:g}s ({s.music_provider}; ~{minutes:.0f} min to generate, reused from the library when possible)")
+    if sfx:
+        words = sum(c.word_count for c in chunks)
+        ui.kv("effects", f"up to ~{cue_budget(words, sfx)} cues at intensity {sfx} ({s.sfx_provider})")
+
+
+def _prepare_sounds(project, config, profile, client, selected, plan, outputs, ui, *, force=False, library=None, providers=None):
+    """Plan and generate the music and effects for the chapters. Failures only cost the extras, never the audio."""
+    music_level, sfx_level = music_wanted(project), sfx_wanted(project)
+    if not (music_level or sfx_level):
+        return {}
+    if client is None:
+        ui.warn("music and sound effects need the Gemini key to plan them; continuing without")
+        return {}
+    library = library or Library()
+    music_provider, sfx_provider = (providers or (None, None))
+    ui.banner("🎼", "Soundscape", f"music {music_level or 'off'} · effects {sfx_level or 'off'} · audience {audience_of(project)}")
+    manifest = load_manifest(project.ingest_dir)
+    titles = {int(item["index"]): item["title"] for item in manifest["chapters"]}
+    music_plan = None
+    if music_level:
+        try:
+            music_plan = plan_music(project, config, client, library, force=force)
+        except Exception as exc:
+            ui.warn(f"could not plan the music ({exc}); continuing without it")
+    result = {}
+    for index in selected:
+        music = ChapterMusic(index, False)
+        cues = []
+        if music_plan:
+            try:
+                music = ensure_music(project, config, music_plan, library, index, ui=ui, provider=music_provider)
+            except (SoundGenError, RuntimeError, ValueError) as exc:
+                ui.warn(f"chapter {index}: no music ({exc})")
+        if sfx_level:
+            try:
+                turns = numbered_turns(plan[index], outputs)
+                raw = plan_sfx(project, config, client, library, index, titles.get(index, f"Chapter {index}"), turns, force=force)
+                cues = ensure_cues(project, config, raw, library, ui=ui, provider=sfx_provider)
+            except (SoundGenError, RuntimeError, ValueError) as exc:
+                ui.warn(f"chapter {index}: no sound effects ({exc})")
+        result[index] = SoundSet(music, cues)
+        ui.ok(f"chapter {index}: {len(music.tracks)} music track(s), {len(cues)} effect(s)")
+    return result
+
+
+def _sound_signature(project: Project, config: AppConfig, sounds) -> str:
+    if sounds is None:
+        return "none"
+    return fingerprint(
+        [t.id for t in sounds.music.tracks],
+        music_wanted(project),
+        [(c.asset.id, c.at, c.when, c.kind, c.through) for c in sounds.cues],
+        config.sound.__dict__,
+    )
+
+
+def _build_mixed(project, config, profile, chunks, outputs, clips, dest, tail_ms, sounds, chapter) -> None:
+    """Assemble the narration, then lay music and effects under it and write a 44.1 kHz stereo WAV."""
+    import tempfile
+
+    from .mixer import Ambience, MixPlan, Spot, decode, mix_chapter, write_wav as write_stereo
+
+    s = config.sound
+    library = Library()
+    with tempfile.TemporaryDirectory() as scratch:
+        dry_path = Path(scratch) / "dry.wav"
+        _build(config, clips, dry_path, tail_ms)
+        dry = decode(dry_path, s.sample_rate)
+    timeline = chapter_timeline(
+        config, profile, chunks, outputs,
+        lambda chunk, i: _clip_path(config, chunk.chapter_index, chunk.order, chunk.id, i),
+    )
+    plan = MixPlan(spans=timeline.spans, seed=chapter_seed(project, chapter))
+    if sounds is not None and sounds.music.tracks and music_wanted(project):
+        plan.music = [decode(library.path(track), s.sample_rate) for track in sounds.music.tracks]
+        plan.music_db = level_db(music_wanted(project), config)
+    for cue in (sounds.cues if sounds is not None else []):
+        first = timeline.turn_span(cue.at)
+        if first is None:
+            continue
+        audio = decode(library.path(cue.asset), s.sample_rate)
+        if cue.kind == "ambience":
+            last = timeline.turn_span(cue.through or cue.at)
+            plan.ambiences.append(Ambience(first[0], (last or first)[1], audio, s.ambience_db))
+        else:
+            at = max(0.0, first[0] - 0.3) if cue.when == "before" else first[1] + 0.15
+            plan.spots.append(Spot(at, audio, s.sfx_db))
+    write_stereo(dest, mix_chapter(dry, plan, s, rate=s.sample_rate), s.sample_rate)

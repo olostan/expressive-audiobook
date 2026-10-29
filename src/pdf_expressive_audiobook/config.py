@@ -169,6 +169,38 @@ class AssembleConfig:
 
 
 @dataclass
+class SoundConfig:
+    """Background music and sound effects: providers, lengths, and mix levels."""
+
+    music_provider: str = "sa3"
+    sfx_provider: str = "sa3"
+    sa3_dir: str = ""  # empty: <models>/stable-audio-3/optimized/mlx
+    sa3_music_dit: str = "medium"
+    sa3_music_decoder: str = "same-l"
+    sa3_sfx_dit: str = "sm-sfx"
+    sa3_sfx_decoder: str = "same-s"
+    elevenlabs_model: str = "eleven_text_to_sound_v2"
+    sample_rate: int = 44100
+    music_seconds: float = 60.0
+    music_variants: int = 2
+    music_negative_prompt: str = "vocals, singing, lyrics, drums, percussion, sudden changes, loud climax"
+    sfx_max_seconds: float = 6.0
+    ambience_seconds: float = 12.0
+    director_model: str = ""  # empty: prep.model
+    require_approval: bool = False  # True: only approved library items are mixed
+    music_db_floor: float = -34.0  # music level 0+ ... 1 spans floor..ceiling, relative to speech
+    music_db_ceiling: float = -17.0
+    duck_db: float = -7.0
+    duck_attack_ms: float = 400.0
+    duck_release_ms: float = 1200.0
+    preroll_s: float = 3.0
+    tail_s: float = 5.0
+    bed_crossfade_s: float = 8.0
+    sfx_db: float = -9.0
+    ambience_db: float = -22.0
+
+
+@dataclass
 class CostConfig:
     tts_input_price_per_million: float = 0.50
     tts_output_price_per_million: float = 9.00
@@ -186,6 +218,7 @@ class AppConfig:
     prep: PrepConfig = field(default_factory=PrepConfig)
     tts: TtsConfig = field(default_factory=TtsConfig)
     assemble: AssembleConfig = field(default_factory=AssembleConfig)
+    sound: SoundConfig = field(default_factory=SoundConfig)
     cost: CostConfig = field(default_factory=CostConfig)
 
 
@@ -337,6 +370,7 @@ def _merge_config(config: AppConfig, raw: dict) -> AppConfig:
         "prep": config.prep,
         "tts": config.tts,
         "assemble": config.assemble,
+        "sound": config.sound,
         "cost": config.cost,
     }
     for name, target in mapping.items():

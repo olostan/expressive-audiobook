@@ -26,6 +26,7 @@ from pathlib import Path
 
 import yaml
 
+from .home import default_projects_dir
 from .config import AppConfig, StyleProfile, VoiceMapping, _merge_config, style_from_dict
 from .tts import classify_voice_name
 from .tuning import DEFAULTS as TUNING_DEFAULTS
@@ -53,6 +54,12 @@ DEFAULTS: dict = {
     "audio": {"gap_ms": None, "chapter_tail_ms": None, "format": "mp3", "keep_wav": False},
     "style": {"pages": 5, "model": None},
     "character_voices": {},
+    # Optional extras. Both cost generation time or money, so both start off.
+    "soundscape": {
+        "music": {"enabled": False, "level": 0.4, "style_hint": ""},
+        "sfx": {"enabled": False, "intensity": 0.4},
+        "audience": None,
+    },
     "overrides": {},
 }
 
@@ -62,7 +69,7 @@ class ProjectError(RuntimeError):
 
 
 def projects_dir(explicit: str | Path | None = None) -> Path:
-    return Path(explicit or os.environ.get("AUDIOBOOK_PROJECTS") or "projects")
+    return Path(explicit or os.environ.get("AUDIOBOOK_PROJECTS") or default_projects_dir())
 
 
 def valid_name(name: str) -> str:

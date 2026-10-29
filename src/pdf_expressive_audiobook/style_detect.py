@@ -73,6 +73,10 @@ Return JSON only, with these keys:
 - "recommended": object of numbers from 0 to 1: "expressiveness" (0 plain reading, 1 fully performed),
   "pace" (0 slowest, 0.5 conversational, 1 fastest), "pause_density" (0 only punctuation pauses, 1 frequent
   room to think)
+- "audience": who the book is for: "kids", "young_adult", "general" or "technical"
+- "soundscape": object {{"music": {{"recommended": true/false, "style": "a few words on fitting background music", "reason": "one sentence"}},
+  "sfx": {{"recommended": true/false, "reason": "one sentence"}}}}. Recommend music and sound effects for fiction and
+  stories, most of all for children. Do not recommend them for scientific, technical, academic or reference books.
 - "notes": optional markdown with anything else a narrator must know. Do not quote the excerpts.
 
 Excerpts:
@@ -231,9 +235,10 @@ def detect_style(
     more = representative_excerpts(ingest_dir)
     if more:
         excerpts += "\n\n" + more
-    metadata = {k: manifest.get(k) for k in ("title", "author", "source_pdf") if manifest.get(k)}
-    if metadata.get("source_pdf"):
-        metadata["file_name"] = Path(metadata.pop("source_pdf")).name
+    metadata = {k: manifest.get(k) for k in ("title", "author") if manifest.get(k)}
+    source = manifest.get("source_file") or manifest.get("source_pdf")
+    if source:
+        metadata["file_name"] = Path(source).name
     brief = {k: v for k, v in features.items() if k != "speaker_counts"}
     prompt = STYLE_PROMPT.format(
         metadata=json.dumps(metadata, ensure_ascii=False),

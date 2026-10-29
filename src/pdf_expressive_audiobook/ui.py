@@ -26,13 +26,50 @@ CODES = {
 
 
 class Ui:
-    def __init__(self, stream=None, *, color: bool | None = None, quiet: bool = False):
+    def __init__(
+        self, stream=None, *, color: bool | None = None, quiet: bool = False,
+        interactive: bool | None = None, input_fn=None,
+    ):
         self.stream = stream if stream is not None else sys.stdout
         tty = bool(getattr(self.stream, "isatty", lambda: False)())
         self.tty = tty
         self.color = (tty and "NO_COLOR" not in os.environ) if color is None else color
         self.quiet = quiet
         self._lock = threading.Lock()
+        self._input = input_fn or input
+        # Questions are asked only when someone is there to answer them.
+        self.interactive = (tty and sys.stdin.isatty()) if interactive is None else interactive
+
+    def ask(self, question: str, default: str = "") -> str:
+        """Ask for a line of text. Returns the default when not interactive or the answer is empty."""
+        if not self.interactive:
+            return default
+        shown = f" [{default}]" if default else ""
+        try:
+            answer = self._input(f"   {self.paint('?', 'magenta', 'bold')} {question}{shown} ").strip()
+        except EOFError:
+            return default
+        return answer or default
+
+    def confirm(self, question: str, default: bool = False) -> bool:
+        answer = self.ask(question + (" [Y/n]" if default else " [y/N]"), "").lower()
+        if not answer:
+            return default
+        return answer.startswith("y")
+
+    def ask_level(self, question: str, default: float) -> float:
+        """A number from 0 to 1."""
+        while True:
+            answer = self.ask(question, f"{default:g}")
+            try:
+                value = float(answer)
+            except ValueError:
+                value = -1.0
+            if 0.0 <= value <= 1.0:
+                return value
+            if not self.interactive:
+                return default
+            self.warn("Please enter a number from 0 to 1")
 
     def paint(self, text: str, *styles: str) -> str:
         if not self.color or not styles:

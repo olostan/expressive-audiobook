@@ -174,6 +174,23 @@ def concatenate(
     return PcmClip(_from_samples(merged), rate, 1, 2)
 
 
+def clip_offsets(lengths: list[int], *, gap_ms: float, crossfade_ms: float, rate: int) -> list[int]:
+    """Start frame of each clip as ``concatenate`` lays them out."""
+    gap = int(round(rate * gap_ms / 1000.0))
+    fade = int(round(rate * crossfade_ms / 1000.0))
+    starts: list[int] = []
+    position = 0
+    for index, length in enumerate(lengths):
+        if index:
+            if gap > 0:
+                position += gap
+            elif fade > 0:
+                position -= min(fade, lengths[index - 1], length)
+        starts.append(position)
+        position += length
+    return starts
+
+
 def assemble_clips(
     paths: list[Path | str],
     dest: Path | str,

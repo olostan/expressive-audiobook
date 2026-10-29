@@ -1,6 +1,6 @@
 # pdf-expressive-audiobook
 
-Turn a PDF you own into a spoken chapter. You pick the PDF and the delivery. A style profile (or one line of direction) is the only place literary judgment lives: pace, vocal tags, character voices, and how diagrams and formulas should be spoken.
+Turn a PDF, Markdown or text file you own into a spoken chapter. You pick the PDF and the delivery. A style profile (or one line of direction) is the only place literary judgment lives: pace, vocal tags, character voices, and how diagrams and formulas should be spoken.
 
 Work happens in a **project**: one folder per book under `projects/<name>/` that holds the extracted chapters, your settings, the narration style, and every generated file. Import once, tune, then generate as often as you like. Every step is resumable.
 
@@ -40,10 +40,11 @@ audiobook --version
 ## Quick start: import, tune, prepare, generate
 
 ```text
-audiobook import --pdf ~/Downloads/book.pdf --name mybook
+audiobook import --source ~/Downloads/book.pdf --name mybook
+audiobook import --source ~/stories/pip.md --name pip        # Markdown or plain text works too
 ```
 
-1. **Import.** Reads the PDF into chapters (JSON), skips Contents pages, then asks Gemini to read the first ~5 pages and write a narration style. It prints what it found and what you can change. No speech is generated and almost nothing is spent.
+1. **Import.** Reads the book into chapters (JSON), skips Contents pages, then asks Gemini to read the opening and write a narration style. It prints what it found and what you can change, and (in a terminal) asks you to confirm the suggested delivery and whether you want background music and sound effects. No speech is generated and almost nothing is spent.
 2. **Tune (optional).** Edit `projects/mybook/project.json` (voice, expressiveness, pace, pauses) and `projects/mybook/style.md` (narrator persona, traits, pronunciation, how to speak formulas and figures, free notes).
 3. **Prepare (optional).** Writes the narration for chapters: the spoken text, delivery style, and inline tags such as `<chuckle>` and `<short pause>`. Review it in `prep/review/chapter-NNN.md`, or edit `prep/outputs/chunks/*.json` by hand.
 
@@ -62,6 +63,49 @@ audiobook import --pdf ~/Downloads/book.pdf --name mybook
    ```
 
 `--project` can be left out when `projects/` holds only one project. `gen` is short for `generate`. Add `--dry-run` to see the estimate without any API call, `--force` to redo cached results, `--quiet` (before the command) for plain output. Colors turn off automatically when output is not a terminal or `NO_COLOR` is set.
+
+### Markdown and text files
+
+`--source` takes a `.pdf`, `.md` or `.txt` file (`--pdf` still works).
+
+- **Markdown:** chapters are the headings. A single top heading names the book; the next level down becomes the chapters. YAML front matter (`title`, `author`) is read. Links, emphasis, images, code blocks, tables and comments are stripped; list items and block quotes are read as paragraphs.
+- **Plain text:** chapters are lines like `Chapter 3`, `Prologue`, `IV`, `2. The Hill` or ALL-CAPS titles, with a short line after a bare `Chapter 3` taken as its title. `* * *` scene breaks are dropped.
+- **No headings at all:** a long file is cut into parts of about 3,000 words at scene breaks and paragraph boundaries; a short one is a single chapter.
+- A `NAME: line` script format is read as dialogue with speakers. Quoted dialogue in prose is left to the narrator for now.
+
+Add `--non-interactive` to skip every question (the suggestions and flags are used), or pass the answers directly: `--music 0.4 --sfx 0.3 --audience kids`.
+
+### Background music and sound effects
+
+Both are optional and **off by default**: they cost generation time (or money) and suit stories more than technical books. Import suggests them for fiction and asks; you can also set them any time:
+
+```text
+audiobook sound --project pip --music 0.4 --sfx 0.3 --audience kids
+audiobook sound --project pip --music-style "soft piano and strings, like a bedtime story"
+```
+
+- `--music` is 0 (off) to 1 (very noticeable). It sets how far under the voice the music sits; it also ducks while the narrator speaks.
+- `--sfx` is 0 (off) to 1 (very noticeable). It sets how many sound effects are suggested (about one per 1,200 words at 0.1 and one per 150 at 1).
+- `--audience kids` asks for gentler music and no frightening or sudden sounds.
+
+On `generate`, a "music supervisor" pass (one text-model call) writes `score/music.json`: one shared palette for the book and a prompt for each chapter. Each chapter gets a few variants of its music, and the mixer joins them with long crossfades in a shuffled order, from a random start, with a slow level drift, so a short loop is not noticeable. Each chapter fades its music in before the first word and out after the last. A "sound designer" pass reads each chapter's prepared text and writes `score/sfx-NNN.json`: one-off sounds at turn boundaries and quiet ambience loops (rain, wind) under a range of turns. Both plans are plain JSON you can edit; a plan whose inputs have not changed is not rewritten. Changing a level only remixes; speech is never redone.
+
+Sounds are made locally with Stable Audio 3 (free, a few seconds each on Apple Silicon) and kept in a library shared by every book, so a rain loop made for one book is reused by the next; the sound designer is shown what the library already holds and prefers it.
+
+```text
+audiobook models install sa3                    # one time, about 8 GB, into ~/.audiobook/models
+audiobook library list                          # everything made so far
+audiobook library play music-warm-felt-piano-73a3b5d1
+audiobook library reject sfx-a-small-soft-splash-1fe6bfa9   # never mix this one again
+audiobook library generate --kind sfx --prompt "a wooden door creaking open" --seconds 3
+audiobook library add ~/Music/rain.flac --kind sfx --loop --title "Rain"
+```
+
+New sounds start as `candidate`. Everything except `rejected` is mixed; set `sound.require_approval = true` (in `overrides`) to mix only items you have `approve`d. ElevenLabs can make the effects instead (`"overrides": {"sound": {"sfx_provider": "elevenlabs"}}`, with `ELEVENLABS_API_KEY` in `.env`). Mixing needs `ffmpeg` and `numpy` (`pip install -e ".[sound]"`). With music or effects on, chapters are written as 44.1 kHz stereo, and a `--dry-run` shows how many tracks and cues are planned.
+
+### Where things live
+
+`~/.audiobook/` (override with `AUDIOBOOK_HOME`) holds `projects/`, `library/` and `models/`. A `./projects` folder keeps being used while it exists and `~/.audiobook/projects` does not.
 
 ### Resuming and changing your mind
 
@@ -107,6 +151,7 @@ projects/mybook/
   ingest/        manifest.json, chapters/NNN.json, page images
   chunks/        prep/ (outputs, review/)   tts/   audio/ (clips, chapter-NNN.wav, book.wav)
   samples/       chapter-004-30s.wav
+  score/         music.json, sfx-NNN.json (when music or effects are on)
 ```
 
 `projects/` is ignored by git. Importing the same PDF again keeps your edits and does nothing; a different PDF under the same name needs `--force` and deletes the generated files.
