@@ -13,6 +13,7 @@ from pathlib import Path
 from .audio import assemble_clips
 from .chunking import load_chapter_jsonl
 from .config import AppConfig
+from .export import ExportError, convert, ffmpeg_path
 from .ingest import load_manifest
 from .pipeline import (
     _clip_path,
@@ -31,6 +32,7 @@ from .project import (
     ProjectError,
     atomic_write,
     file_sha256,
+    fingerprint,
     projects_dir,
     render_style_md,
 )
@@ -390,6 +392,11 @@ def generate_book(
     ui.banner("🎧", "Assembling audio")
     outputs = _load_prep_outputs(config, None)
     audio: list[Path] = []
+    compressed: list[Path] = []
+    manifest = load_manifest(project.ingest_dir)
+    titles = {int(item["index"]): item["title"][:100] for item in manifest["chapters"]}
+    base_tags = {"album": project.data.get("title") or project.name, "artist": manifest.get("author") or ""}
+    base_tags = {k: v for k, v in base_tags.items() if v}
     for index in selected:
         chunks = plan[index]
         clips = _expected_clips(config, profile, chunks, outputs)
@@ -403,31 +410,61 @@ def generate_book(
         if not clips or missing:
             ui.warn(f"chapter {index}: {len(missing)} clip(s) missing; not assembled")
             continue
-        assemble_clips(
-            clips,
-            dest,
-            sample_rate=config.tts.sample_rate,
-            gap_ms=config.assemble.gap_ms,
-            crossfade_ms=config.assemble.crossfade_ms,
-            tail_ms=tail,
-        )
+        _assemble(config, clips, dest, tail)
         audio.append(dest)
         ui.ok(f"chapter {index}: {dest}")
+        tags = {"title": titles.get(index, f"Chapter {index}"), "track": str(index), **base_tags}
+        _compress(ui, config, dest, tags, compressed)
     if not sample and chapters is None and len(audio) > 1 and config.assemble.write_full_book:
         book = Path(config.paths.audio) / "book.wav"
-        assemble_clips(
-            audio, book, sample_rate=config.tts.sample_rate, gap_ms=config.assemble.gap_ms,
-            crossfade_ms=config.assemble.crossfade_ms,
-        )
+        _assemble(config, list(audio), book, 0)
         audio.append(book)
         ui.ok(f"whole book: {book}")
+        _compress(ui, config, book, {"title": base_tags.get("album", project.name), **base_tags}, compressed)
     ui.banner("🎉", "Done", f"{len(audio)} file(s)")
     if sample:
         ui.hint("Like it? Drop --sample to generate the full chapter. Reuses everything already spoken.")
     else:
         ui.hint("Change project.json or style.md and run again: only the affected chunks are redone.")
-    result["audio"] = audio
+    result["audio"] = audio + compressed
     return result
+
+
+def _assemble(config: AppConfig, sources: list[Path], dest: Path, tail_ms: float) -> None:
+    """Build ``dest`` from ``sources``, unless the same inputs and settings already produced it."""
+    a = config.assemble
+    stamp = fingerprint(
+        [(p.name, p.stat().st_size, p.stat().st_mtime_ns) for p in sources],
+        a.gap_ms, a.crossfade_ms, tail_ms, config.tts.sample_rate,
+    )
+    marker = dest.with_name(dest.name + ".fp")
+    if dest.exists() and marker.exists() and marker.read_text(encoding="utf-8").strip() == stamp:
+        return
+    assemble_clips(
+        sources, dest, sample_rate=config.tts.sample_rate, gap_ms=a.gap_ms,
+        crossfade_ms=a.crossfade_ms, tail_ms=tail_ms,
+    )
+    atomic_write(marker, stamp + "\n")
+
+
+def _compress(ui: Ui, config: AppConfig, wav: Path, tags: dict, done: list[Path]) -> None:
+    """Also write MP3/M4A when the project asks for it and ffmpeg exists."""
+    fmt = config.assemble.format
+    if fmt == "wav":
+        return
+    if ffmpeg_path() is None:
+        if not getattr(ui, "ffmpeg_warned", False):
+            ui.warn(f"ffmpeg not found, so only WAV files were written. Install it (brew install ffmpeg) to get {fmt}.")
+            ui.ffmpeg_warned = True
+        return
+    try:
+        out = convert(wav, fmt, quality=config.assemble.mp3_quality, tags=tags)
+    except ExportError as exc:
+        ui.warn(str(exc))
+        return
+    if out:
+        done.append(out)
+        ui.info(f"🎵 {out.name}  {wav.stat().st_size / 1e6:.1f} MB → {out.stat().st_size / 1e6:.1f} MB")
 
 
 def _expected_clips(config, profile, chunks, outputs) -> list[Path]:

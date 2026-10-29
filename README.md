@@ -14,8 +14,9 @@ With no voice setup, speech uses the prebuilt Gemini voice **Schedar** (labeled 
 
 Optional:
 
+- ffmpeg, to also write MP3 or M4A copies of the audio (`brew install ffmpeg`).
 - Tesseract, only for scanned pages. Install the `tesseract` binary and `pip install -e ".[ocr]"`, then set `ingest.ocr_enabled` to `true` in a copy of `config/default.toml`.
-- ffmpeg is not required. Chapter and sample audio are ordinary WAV files written by Python.
+- ffmpeg is not required. Chapter and sample audio are ordinary WAV files written by Python; ffmpeg only adds MP3/M4A copies.
 
 ## Install
 
@@ -87,6 +88,7 @@ Stop with Ctrl-C at any time and run the same command again. Each chunk of narra
 | `expressiveness` | 0 to 1 | 0 reads plainly; 1 is fully performed. Sets how often turns get a style and inline tags (about 1.5 tags per 100 words at 0.6). A passage that comes back too flat is sent back once for more performance. |
 | `pace` | 0 to 1 | 0 is slowest, about 0.5 is conversational, 1 is fastest. Below 0.4 the narrator is asked for an unhurried style. |
 | `pause_density` | 0 to 1 | 0 means only punctuation pauses; 1 means frequent `<short pause>` tags (two in a row for a longer pause; the model sometimes speaks `<long pause>` aloud). Also sets the default silence between passages (250 ms at 0, 900 ms at 1) and at the end of a chapter. |
+| `audio.format` | `mp3`, `m4a`, `wav` | The WAV files are always written (24 kHz mono, about 170 MB per hour). With `mp3` or `m4a` and `ffmpeg` installed, a compressed copy with title/track/album tags is written beside each one (about 6 times smaller). Without ffmpeg you get a note and the WAV only. Default `mp3`. |
 | `gap_ms`, `chapter_tail_ms` | number or `null` | Silence between passages and after a chapter. `null` follows `pause_density`.
 
 The old words (`low`/`medium`/`high`, `slow`/`measured`/`normal`/`brisk`, `minimal`/`normal`/`generous`) still work and map to numbers. |

@@ -50,7 +50,7 @@ DEFAULTS: dict = {
         "pace": TUNING_DEFAULTS["pace"],
         "pause_density": TUNING_DEFAULTS["pause_density"],
     },
-    "audio": {"gap_ms": None, "chapter_tail_ms": None},
+    "audio": {"gap_ms": None, "chapter_tail_ms": None, "format": "mp3"},
     "style": {"pages": 5, "model": None},
     "character_voices": {},
     "overrides": {},
@@ -172,6 +172,7 @@ class Project:
         config.prep.min_tags_per_100_words = tag_floor(tuning["expressiveness"])
         config.assemble.gap_ms = tuning["gap_ms"]
         config.assemble.chapter_tail_ms = tuning["chapter_tail_ms"]
+        config.assemble.format = str(self.data["audio"].get("format") or "wav").lower()
         config.ingest.skip_contents = True
         overrides = self.data.get("overrides") or {}
         if overrides:

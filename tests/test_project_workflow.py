@@ -328,3 +328,38 @@ def test_tuning_levels_are_numbers_with_old_words_as_aliases():
     high = delivery_guidance(0.9, 0.9, 1.0)
     assert "minimal" in low and "slow" in low and "only where punctuation" in low
     assert "Perform the text" in high and "brisk" in high and "two in a row" in high
+
+
+def test_mp3_is_written_next_to_the_wav_when_ffmpeg_exists(tmp_path):
+    import shutil
+
+    import pytest
+
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg is not installed")
+    prep, speech = Prep(), Speech()
+    root = _import(tmp_path, prep)
+    assert _run(tmp_path, "generate", "--chapter", "1", prep=prep, speech=speech) == 0
+    mp3 = root / "audio" / "chapter-001.mp3"
+    assert mp3.exists() and mp3.stat().st_size > 0
+    assert mp3.read_bytes()[:3] == b"ID3"
+    assert (root / "audio" / "chapter-001.wav").exists()
+    stamp = mp3.stat().st_mtime_ns
+    assert _run(tmp_path, "generate", "--chapter", "1", prep=prep, speech=speech) == 0
+    assert mp3.stat().st_mtime_ns == stamp  # up to date: not converted again
+    data = json.loads((root / "project.json").read_text())
+    data["audio"]["format"] = "wav"
+    (root / "project.json").write_text(json.dumps(data))
+    mp3.unlink()
+    assert _run(tmp_path, "generate", "--chapter", "1", prep=prep, speech=speech) == 0
+    assert not mp3.exists()
+
+
+def test_missing_ffmpeg_keeps_the_wav_and_says_so(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("pdf_expressive_audiobook.export.shutil.which", lambda name: None)
+    prep, speech = Prep(), Speech()
+    root = _import(tmp_path, prep)
+    assert _run(tmp_path, "generate", "--chapter", "1", prep=prep, speech=speech) == 0
+    assert (root / "audio" / "chapter-001.wav").exists()
+    assert not list((root / "audio").glob("*.mp3"))
+    assert "ffmpeg not found" in capsys.readouterr().out
