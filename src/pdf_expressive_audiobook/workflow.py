@@ -13,7 +13,7 @@ from pathlib import Path
 from .audio import assemble_clips
 from .chunking import load_chapter_jsonl
 from .config import AppConfig
-from .export import ExportError, convert, ffmpeg_path
+from .export import ExportError, convert, ffmpeg_path, target_path
 from .ingest import load_manifest
 from .pipeline import (
     _clip_path,
@@ -391,80 +391,116 @@ def generate_book(
 
     ui.banner("🎧", "Assembling audio")
     outputs = _load_prep_outputs(config, None)
-    audio: list[Path] = []
-    compressed: list[Path] = []
+    files: list[Path] = []
     manifest = load_manifest(project.ingest_dir)
     titles = {int(item["index"]): item["title"][:100] for item in manifest["chapters"]}
     base_tags = {"album": project.data.get("title") or project.name, "artist": manifest.get("author") or ""}
     base_tags = {k: v for k, v in base_tags.items() if v}
+    a = config.assemble
+    jobs: dict[int, tuple[Path, list[Path], float, str]] = {}
     for index in selected:
-        chunks = plan[index]
-        clips = _expected_clips(config, profile, chunks, outputs)
+        clips = _expected_clips(config, profile, plan[index], outputs)
         if sample:
             dest = project.samples_dir / f"chapter-{index:03d}-{sample:g}s.wav"
             tail = 0
         else:
             dest = Path(config.paths.audio) / f"chapter-{index:03d}.wav"
-            tail = config.assemble.chapter_tail_ms
+            tail = a.chapter_tail_ms
         missing = [path for path in clips if not path.exists()]
         if not clips or missing:
             ui.warn(f"chapter {index}: {len(missing)} clip(s) missing; not assembled")
             continue
-        _assemble(config, clips, dest, tail)
-        audio.append(dest)
-        ui.ok(f"chapter {index}: {dest}")
+        stamp = _stamp(config, [(p.name, p.stat().st_size, p.stat().st_mtime_ns) for p in clips], tail)
+        jobs[index] = (dest, clips, tail, stamp)
         tags = {"title": titles.get(index, f"Chapter {index}"), "track": str(index), **base_tags}
-        _compress(ui, config, dest, tags, compressed)
-    if not sample and chapters is None and len(audio) > 1 and config.assemble.write_full_book:
+        made = _publish(ui, config, dest, stamp, lambda d=dest, c=clips, t=tail: _build(config, c, d, t), tags)
+        files.extend(made)
+        ui.ok(f"chapter {index}: {made[-1]}")
+    if not sample and chapters is None and len(jobs) > 1 and a.write_full_book:
         book = Path(config.paths.audio) / "book.wav"
-        _assemble(config, list(audio), book, 0)
-        audio.append(book)
-        ui.ok(f"whole book: {book}")
-        _compress(ui, config, book, {"title": base_tags.get("album", project.name), **base_tags}, compressed)
-    ui.banner("🎉", "Done", f"{len(audio)} file(s)")
+        stamp = fingerprint([job[3] for job in jobs.values()], a.gap_ms, a.crossfade_ms)
+
+        def build_book() -> None:
+            for dest, clips, tail, _ in jobs.values():  # a dropped chapter WAV is rebuilt from its clips
+                if not dest.exists():
+                    _build(config, clips, dest, tail)
+            _build(config, [job[0] for job in jobs.values()], book, 0)
+
+        made = _publish(ui, config, book, stamp, build_book, {"title": base_tags.get("album", project.name), **base_tags})
+        files.extend(made)
+        for dest, *_ in jobs.values():  # chapter WAVs rebuilt only for the book are not kept either
+            if not a.keep_wav and dest.exists() and convertible(config.assemble.format) and target_path(dest, a.format).exists():
+                dest.unlink()
+        ui.ok(f"whole book: {made[-1]}")
+    ui.banner("🎉", "Done", f"{len(files)} file(s)")
     if sample:
         ui.hint("Like it? Drop --sample to generate the full chapter. Reuses everything already spoken.")
     else:
         ui.hint("Change project.json or style.md and run again: only the affected chunks are redone.")
-    result["audio"] = audio + compressed
+    result["audio"] = files
     return result
 
 
-def _assemble(config: AppConfig, sources: list[Path], dest: Path, tail_ms: float) -> None:
-    """Build ``dest`` from ``sources``, unless the same inputs and settings already produced it."""
+def _stamp(config: AppConfig, sources: list, tail_ms: float) -> str:
     a = config.assemble
-    stamp = fingerprint(
-        [(p.name, p.stat().st_size, p.stat().st_mtime_ns) for p in sources],
-        a.gap_ms, a.crossfade_ms, tail_ms, config.tts.sample_rate,
-    )
-    marker = dest.with_name(dest.name + ".fp")
-    if dest.exists() and marker.exists() and marker.read_text(encoding="utf-8").strip() == stamp:
-        return
+    return fingerprint(sources, a.gap_ms, a.crossfade_ms, tail_ms, config.tts.sample_rate)
+
+
+def _build(config: AppConfig, sources: list[Path], dest: Path, tail_ms: float) -> None:
+    a = config.assemble
     assemble_clips(
         sources, dest, sample_rate=config.tts.sample_rate, gap_ms=a.gap_ms,
         crossfade_ms=a.crossfade_ms, tail_ms=tail_ms,
     )
-    atomic_write(marker, stamp + "\n")
 
 
-def _compress(ui: Ui, config: AppConfig, wav: Path, tags: dict, done: list[Path]) -> None:
+def convertible(fmt: str) -> bool:
+    return fmt != "wav" and ffmpeg_path() is not None
+
+
+def _publish(ui: Ui, config: AppConfig, wav: Path, stamp: str, build, tags: dict) -> list[Path]:
+    """Make ``wav`` (if its inputs changed), write the MP3/M4A, and drop the WAV unless keep_wav.
+
+    Returns the files that exist afterwards. A WAV removed earlier is not rebuilt while the
+    compressed copy is still current.
+    """
+    a = config.assemble
+    marker = wav.with_name(wav.name + ".fp")
+    fresh = marker.exists() and marker.read_text(encoding="utf-8").strip() == stamp
+    fmt = a.format
+    packed = target_path(wav, fmt) if convertible(fmt) else None
+    if packed and not a.keep_wav and fresh and packed.exists() and not wav.exists():
+        return [packed]
+    if not (fresh and wav.exists()):
+        build()
+        atomic_write(marker, stamp + "\n")
+    out = _compress(ui, config, wav, tags)
+    if out is None:
+        return [wav]
+    if not a.keep_wav:
+        wav.unlink()
+        return [out]
+    return [wav, out]
+
+
+def _compress(ui: Ui, config: AppConfig, wav: Path, tags: dict) -> Path | None:
     """Also write MP3/M4A when the project asks for it and ffmpeg exists."""
     fmt = config.assemble.format
     if fmt == "wav":
-        return
+        return None
     if ffmpeg_path() is None:
         if not getattr(ui, "ffmpeg_warned", False):
             ui.warn(f"ffmpeg not found, so only WAV files were written. Install it (brew install ffmpeg) to get {fmt}.")
             ui.ffmpeg_warned = True
-        return
+        return None
     try:
         out = convert(wav, fmt, quality=config.assemble.mp3_quality, tags=tags)
     except ExportError as exc:
         ui.warn(str(exc))
-        return
-    if out:
-        done.append(out)
+        return None
+    if out and out.stat().st_mtime >= wav.stat().st_mtime:
         ui.info(f"🎵 {out.name}  {wav.stat().st_size / 1e6:.1f} MB → {out.stat().st_size / 1e6:.1f} MB")
+    return out
 
 
 def _expected_clips(config, profile, chunks, outputs) -> list[Path]:

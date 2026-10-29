@@ -126,7 +126,7 @@ def test_prepare_generate_sample_is_resumable_and_tracks_changes(tmp_path):
     assert _run(tmp_path, "generate", "--chapter", "1", "--sample", "5", prep=prep, speech=speech) == 0
     assert prep.calls == first_prep_calls  # prep was cached
     assert speech.calls >= 1
-    assert list((root / "samples").glob("chapter-001-5s.wav"))
+    assert list((root / "samples").glob("chapter-001-5s.*"))
     spoken = speech.calls
 
     # Same command again: nothing is redone.
@@ -135,7 +135,7 @@ def test_prepare_generate_sample_is_resumable_and_tracks_changes(tmp_path):
 
     # Full chapter reuses the sample's clips, then builds the chapter file with a closing silence.
     assert _run(tmp_path, "generate", "--chapter", "1", prep=prep, speech=speech) == 0
-    assert (root / "audio" / "chapter-001.wav").exists()
+    assert list((root / "audio").glob("chapter-001.*"))
 
     # Editing the tuning invalidates prep and speech for that chapter only.
     data = json.loads((root / "project.json").read_text())
@@ -330,29 +330,51 @@ def test_tuning_levels_are_numbers_with_old_words_as_aliases():
     assert "Perform the text" in high and "brisk" in high and "two in a row" in high
 
 
-def test_mp3_is_written_next_to_the_wav_when_ffmpeg_exists(tmp_path):
+def _need_ffmpeg():
     import shutil
 
     import pytest
 
     if shutil.which("ffmpeg") is None:
         pytest.skip("ffmpeg is not installed")
+
+
+def test_mp3_replaces_the_wav_by_default_and_is_not_rebuilt(tmp_path):
+    _need_ffmpeg()
     prep, speech = Prep(), Speech()
     root = _import(tmp_path, prep)
+    assert _run(tmp_path, "generate", "--all", prep=prep, speech=speech) == 0
+    audio = root / "audio"
+    mp3 = audio / "chapter-001.mp3"
+    assert mp3.exists() and mp3.read_bytes()[:3] == b"ID3"
+    assert not list(audio.glob("chapter-*.wav")) and not (audio / "book.wav").exists()
+    assert (audio / "book.mp3").exists()
+    assert list((audio / "clips" / "001").glob("*.wav"))  # the speech cache stays
+    stamps = {p.name: p.stat().st_mtime_ns for p in audio.glob("*.mp3")}
+    assert _run(tmp_path, "generate", "--all", prep=prep, speech=speech) == 0
+    assert {p.name: p.stat().st_mtime_ns for p in audio.glob("*.mp3")} == stamps
+    assert not list(audio.glob("chapter-*.wav"))  # nothing rebuilt
+
+
+def test_keep_wav_true_keeps_both_and_changed_inputs_rebuild(tmp_path):
+    _need_ffmpeg()
+    prep, speech = Prep(), Speech()
+    root = _import(tmp_path, prep)
+    data = json.loads((root / "project.json").read_text())
+    data["audio"]["keep_wav"] = True
+    (root / "project.json").write_text(json.dumps(data))
     assert _run(tmp_path, "generate", "--chapter", "1", prep=prep, speech=speech) == 0
-    mp3 = root / "audio" / "chapter-001.mp3"
-    assert mp3.exists() and mp3.stat().st_size > 0
-    assert mp3.read_bytes()[:3] == b"ID3"
-    assert (root / "audio" / "chapter-001.wav").exists()
+    wav, mp3 = root / "audio" / "chapter-001.wav", root / "audio" / "chapter-001.mp3"
+    assert wav.exists() and mp3.exists()
     stamp = mp3.stat().st_mtime_ns
     assert _run(tmp_path, "generate", "--chapter", "1", prep=prep, speech=speech) == 0
-    assert mp3.stat().st_mtime_ns == stamp  # up to date: not converted again
-    data = json.loads((root / "project.json").read_text())
-    data["audio"]["format"] = "wav"
+    assert mp3.stat().st_mtime_ns == stamp
+    data["audio"]["keep_wav"] = False
+    data["audio"]["gap_ms"] = 1500  # different assembly: rebuilt, converted, WAV dropped
     (root / "project.json").write_text(json.dumps(data))
-    mp3.unlink()
     assert _run(tmp_path, "generate", "--chapter", "1", prep=prep, speech=speech) == 0
-    assert not mp3.exists()
+    assert mp3.exists() and not wav.exists()
+    assert mp3.stat().st_mtime_ns != stamp
 
 
 def test_missing_ffmpeg_keeps_the_wav_and_says_so(tmp_path, monkeypatch, capsys):

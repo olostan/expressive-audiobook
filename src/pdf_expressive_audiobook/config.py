@@ -164,6 +164,7 @@ class AssembleConfig:
     chapter_tail_ms: float = 0
     write_full_book: bool = True
     format: str = "wav"  # also write mp3 or m4a next to each WAV when ffmpeg is installed
+    keep_wav: bool = True  # projects default to False: the WAV is removed once the MP3/M4A exists
     mp3_quality: int = 4  # libmp3lame VBR quality, 0 best to 9 smallest; 4 is about 130 kbps
 
 
