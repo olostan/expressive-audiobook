@@ -26,7 +26,7 @@ Sources:
 | Interactions voice | `generation_config.speech_config` is `[{"voice": "Kore"}]` for one speaker and `{"speakers": [...]}` for two. |
 | Multi-speaker limit | Up to two speakers per request, and only with prebuilt voices. Designed or replicated voices are synthesized one turn at a time. |
 | GenerateContent multi-speaker shape | `speechConfig.multiSpeakerVoiceConfig.speakerVoiceConfigs[]` with `voiceConfig.prebuiltVoiceConfig.voiceName` |
-| Inline tags | Angle brackets for point-in-time vocal events. The allowlist in config matches the recommended tags in the speech-generation markdown, including `<short pause>`, `<long pause>`, `<breath>`, `<laugh>`, and the rest listed there. |
+| Inline tags | Angle brackets for point-in-time vocal events. The allowlist in config matches the recommended tags in the speech-generation markdown, including `<short pause>`, `<breath>`, `<laugh>`, and the rest listed there. |
 | Backchannels | Pipe-wrapped listener reactions such as `\|mhm\|`. This repo's default allowlist is `\|mhm\|` and `\|yeah\|` and is configurable. |
 | Emphasis and hesitation | Capitalized words, punctuation, and ellipses. |
 | Empty style | Docs recommend starting with an empty style and adding a short style only when a turn needs it. |
@@ -37,6 +37,13 @@ Sources:
 | Voice catalog | `GET /v1beta/voices`, also `client.voices.list()`. Filters documented for the Gemini API include language, region, accent, gender, pitch, persona, context, type, and search. |
 | Pricing, standard tier, through 2026-12-31 | `gemini-3.8-flash-tts`: $0.50 / 1M text input tokens, $9.00 / 1M audio output tokens, 25 audio tokens per second, described as $0.00225 per 10 seconds. From 2027-01-01 the same page lists $1.00 and $18.00. Flash-Lite TTS is cheaper on that page ($6.00 / 1M audio tokens through 2026-12-31). Batch, flex, and priority tiers differ. |
 | SDK gap | The GenerateContent docs say custom `responseFormat` overrides are supported on REST until the Python and JavaScript SDKs expose `response_format` on `GenerateContentConfig`. Interactions is the SDK path that already shows `response_format`. |
+
+## Found with live calls (2026-10-29)
+
+| Item | Note |
+| --- | --- |
+| Pauses have no separate channel | The docs describe only inline `<short pause>` / `<long pause>` tags in `text`, punctuation, and a turn-wide pace in `style`. |
+| `<long pause>` is sometimes spoken | Transcribing the generated audio with the text model showed "long pause" spoken in about half of the runs, more often with a non-empty style. `<short pause>` was never spoken (0 of ~40 runs), nor were `<chuckle>`, `<breath>`, `<gasp>`, `<whispers>`, `<throat-clearing>`. This repo no longer allows `<long pause>`; `plan_tts_requests` also rewrites one to two short pauses. |
 
 ## Not verified, or contradicted
 

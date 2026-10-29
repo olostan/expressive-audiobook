@@ -39,9 +39,9 @@ PAUSES = {
     "normal": "Pauses: add <short pause> at natural beats, such as before a punchline.",
     "generous": (
         "Pauses: the listener wants time to think. Add <short pause> after a sentence that carries an "
-        "idea, and <long pause> after a dense claim, a question, or the end of a paragraph. Aim for "
-        "about one pause tag per 40 to 60 words. Never put a pause on every sentence, and never "
-        "inside a short phrase."
+        "idea, and two in a row (<short pause> <short pause>) after a dense claim, a question, or "
+        "the end of a paragraph. Aim for about one pause per 40 to 60 words. Never put a pause on "
+        "every sentence, and never inside a short phrase."
     ),
 }
 

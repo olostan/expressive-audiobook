@@ -31,6 +31,7 @@ _PAREN_STAGE_RE = re.compile(
 _LATEX_RE = re.compile(r"\$\$[\s\S]+?\$\$|\$[^$\n]+\$|\\[a-zA-Z]+|\\\(|\\\)|\\\[|\\\]")
 _MATH_SYMBOLS = set("∑∫√≤≥≠∞±∈∉⊂⊆∀∃∂∇≈≡∝×÷")
 _ANCHOR_LEAK_RE = re.compile(r"\[\[")
+_ART_RE = re.compile(r"-{3,}|_{3,}|={3,}|~{3,}|\.{4,}")
 _NON_VOCAL = (
     "applause",
     "clap",
@@ -313,9 +314,10 @@ def validate_prep_output(output: dict, chunk: Chunk, config: AppConfig) -> list[
     if not isinstance(turns, list) or not turns:
         return errors + ["turns must be a non-empty list"]
     hard_words = config.chunking.hard_words
+    speakers = {name.casefold() for name in chunk.speakers} | {"narrator"}
     descriptions = []
     for index, turn in enumerate(turns):
-        errors.extend(_validate_turn(turn, index, config, hard_words))
+        errors.extend(_validate_turn(turn, index, config, hard_words, speakers))
         for item in turn.get("inserted_descriptions") or []:
             descriptions.append((index, turn, item))
     errors.extend(_validate_descriptions(descriptions, turns, chunk, config))
@@ -419,7 +421,14 @@ def split_turn_to_fit(turn: dict, *, max_words: int) -> list[dict]:
     return results
 
 
-def _validate_turn(turn: dict, index: int, config: AppConfig, hard_words: int) -> list[str]:
+def _label_prefix(text: str, speakers: set[str]) -> bool:
+    head = text.lstrip().split(":", 1)
+    return len(head) == 2 and head[0].strip().casefold() in speakers
+
+
+def _validate_turn(
+    turn: dict, index: int, config: AppConfig, hard_words: int, known_speakers: set[str] | None = None
+) -> list[str]:
     errors = []
     prefix = f"turn {index}"
     if not isinstance(turn, dict):
@@ -442,6 +451,8 @@ def _validate_turn(turn: dict, index: int, config: AppConfig, hard_words: int) -
     if isinstance(style, str) and text and _style_quotes_transcript(style, text):
         errors.append(f"{prefix} style contains transcript text")
     errors.extend(_transcript_errors(text or "", config.prep, prefix))
+    if known_speakers and _label_prefix(text or "", known_speakers):
+        errors.append(f"{prefix} starts with a speaker label; the voice says who is talking, so drop it")
     words = spoken_source_words(text or "")
     if words > hard_words:
         errors.append(
@@ -472,6 +483,11 @@ def _transcript_errors(text: str, config: PrepConfig, prefix: str) -> list[str]:
         errors.append(f"{prefix} still contains raw math or LaTeX")
     if _ANCHOR_LEAK_RE.search(text):
         errors.append(f"{prefix} still contains an anchor marker")
+    if _ART_RE.search(text):
+        errors.append(
+            f"{prefix} contains a run of dashes or other typographic art; "
+            "say it in words (for example 'five dashes') instead"
+        )
     lowered = text.lower()
     for word in _NON_VOCAL:
         if f"<{word}" in lowered or f"[{word}" in lowered or f"*{word}" in lowered:

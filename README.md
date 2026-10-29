@@ -86,7 +86,7 @@ Stop with Ctrl-C at any time and run the same command again. Each chunk of narra
 | --- | --- | --- |
 | `expressiveness` | `low`, `medium`, `high` | How often the narrator styles a passage and adds inline tags. If a passage comes back too flat, it is sent back once for more performance. |
 | `pace` | `brisk`, `normal`, `measured`, `slow` | Asks for an unhurried style on most turns. |
-| `pause_density` | `minimal`, `normal`, `generous` | How many `<short pause>` / `<long pause>` tags to write. Also sets the default silence between passages (250 / 500 / 900 ms) and at the end of a chapter. |
+| `pause_density` | `minimal`, `normal`, `generous` | How many `<short pause>` tags to write (a longer pause is two in a row; the model sometimes speaks `<long pause>` aloud). Also sets the default silence between passages (250 / 500 / 900 ms) and at the end of a chapter. |
 | `gap_ms`, `chapter_tail_ms` | number or `null` | Silence between passages and after a chapter. `null` follows `pause_density`. |
 | `voice`, `lite` | a Gemini voice, true/false | Narrator voice; `lite` uses the cheaper speech model. |
 | `character_voices` | speaker to voice | Voices for characters in dialogue. |

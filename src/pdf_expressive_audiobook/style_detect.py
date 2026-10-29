@@ -8,7 +8,22 @@ from pathlib import Path
 
 from .config import AppConfig
 from .ingest import load_chapter, load_manifest
+from .tts import PREBUILT_VOICES
 from .tuning import EXPRESSIVENESS, PACE, PAUSES
+
+# Short descriptors from the prebuilt voice table, to help match characters to voices.
+VOICE_TRAITS = {
+    "Puck": "upbeat", "Charon": "informative", "Kore": "firm", "Fenrir": "excitable",
+    "Leda": "youthful", "Orus": "firm", "Aoede": "breezy", "Callirrhoe": "easy-going",
+    "Autonoe": "bright", "Enceladus": "breathy", "Iapetus": "clear", "Umbriel": "easy-going",
+    "Algieba": "smooth", "Despina": "smooth", "Erinome": "clear", "Algenib": "gravelly",
+    "Rasalgethi": "informative", "Laomedeon": "upbeat", "Achernar": "soft", "Alnilam": "firm",
+    "Schedar": "even", "Gacrux": "mature", "Pulcherrima": "forward", "Achird": "friendly",
+    "Zubenelgenubi": "casual", "Vindemiatrix": "gentle", "Sadachbia": "lively",
+    "Sadaltager": "knowledgeable", "Sulafat": "warm", "Zephyr": "bright",
+}
+MAX_CHARACTER_VOICES = 6
+MIN_SPEAKER_LINES = 5
 
 STYLE_PROMPT = """You are preparing an audiobook of the book excerpted below. The listener owns the book.
 Read the excerpt (the opening pages of the first chapters) and the detected features, then decide how a
@@ -28,6 +43,9 @@ Return JSON only, with these keys:
 - "speakers": names of recurring characters in dialogue, if any (else [])
 - "pronunciation_lexicon": up to 10 hard or invented names as [{{"word": "...", "ipa": "/.../"}}]
 - "verbalize": object with "diagrams", "formulas", "footnotes", "citations": one sentence each on how to speak them
+- "speaker_voices": object mapping each recurring speaker from the detected features (at most {max_voices}) to
+  one distinct prebuilt voice that suits the character. The narrator already uses {narrator}; do not reuse it.
+  Choose from: {voices}
 - "recommended": object with "expressiveness" ({expressiveness}), "pace" ({pace}), "pause_density" ({pauses})
 - "notes": markdown, 2 to 6 short paragraphs or bullets of concrete direction: where to smile, where to slow
   down and let a hard idea land, how to treat dialogue and asides. Do not quote the excerpt.
@@ -60,10 +78,39 @@ def book_features(ingest_dir: Path) -> dict:
         "formulas": kinds["formula"],
         "footnotes": kinds["footnote"],
         "citations": kinds["citation"],
-        "dialogue_speakers": [name for name, _ in speakers.most_common(8)],
+        "dialogue_speakers": [name for name, count in speakers.most_common(8) if count >= MIN_SPEAKER_LINES],
+        "speaker_counts": _merge_case(speakers),
         "skipped_pages": len(manifest.get("skipped_pages") or []),
         "chapter_detection": manifest.get("detection"),
     }
+
+
+def _merge_case(speakers: Counter) -> dict[str, int]:
+    """ACHILLES and Achilles are one speaker. Keep the most common spelling."""
+    best: dict[str, tuple[int, str]] = {}
+    totals: Counter = Counter()
+    for name, count in speakers.items():
+        key = name.casefold()
+        totals[key] += count
+        if key not in best or count > best[key][0]:
+            best[key] = (count, name)
+    return {best[key][1]: total for key, total in totals.most_common() if total >= MIN_SPEAKER_LINES}
+
+
+def assign_character_voices(narrator: str, speakers: list[str], suggested: dict | None = None) -> dict[str, str]:
+    """Distinct prebuilt voices for recurring speakers. Suggestions are used when valid."""
+    taken = {narrator}
+    result: dict[str, str] = {}
+    suggested = {str(k).casefold(): str(v) for k, v in (suggested or {}).items()}
+    for name in speakers[:MAX_CHARACTER_VOICES]:
+        voice = suggested.get(name.casefold())
+        if voice not in PREBUILT_VOICES or voice in taken:
+            voice = next((v for v in sorted(VOICE_TRAITS) if v in PREBUILT_VOICES and v not in taken), None)
+        if voice is None:
+            break
+        taken.add(voice)
+        result[name] = voice
+    return result
 
 
 def sample_excerpt(ingest_dir: Path, pages: int = 5, max_chars: int = 9000) -> str:
@@ -88,7 +135,7 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + " …"
 
 
-def detect_style(ingest_dir: Path, config: AppConfig, client, pages: int = 5) -> dict:
+def detect_style(ingest_dir: Path, config: AppConfig, client, pages: int = 5, narrator: str = "Schedar") -> dict:
     """Ask the text model for a style description. Returns its parsed JSON."""
     features = book_features(ingest_dir)
     excerpt = sample_excerpt(ingest_dir, pages)
@@ -100,6 +147,9 @@ def detect_style(ingest_dir: Path, config: AppConfig, client, pages: int = 5) ->
         expressiveness=" | ".join(EXPRESSIVENESS),
         pace=" | ".join(PACE),
         pauses=" | ".join(PAUSES),
+        max_voices=MAX_CHARACTER_VOICES,
+        narrator=narrator,
+        voices=", ".join(f"{name} ({VOICE_TRAITS[name]})" for name in sorted(VOICE_TRAITS) if name != narrator),
     )
     request = {
         "model": config.prep.model,

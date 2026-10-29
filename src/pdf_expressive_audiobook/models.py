@@ -191,6 +191,7 @@ class Chunk:
     associated: list[AssociatedRef] = field(default_factory=list)
     block_ids: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    segments: list[dict] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> Chunk:
@@ -209,6 +210,7 @@ class Chunk:
             associated=[AssociatedRef.from_dict(item) for item in data.get("associated", [])],
             block_ids=list(data.get("block_ids", [])),
             warnings=list(data.get("warnings", [])),
+            segments=[dict(item) for item in data.get("segments", [])],
         )
 
 

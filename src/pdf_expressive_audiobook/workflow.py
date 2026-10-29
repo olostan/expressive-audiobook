@@ -34,7 +34,7 @@ from .project import (
     projects_dir,
     render_style_md,
 )
-from .style_detect import book_features, detect_style, fallback_style
+from .style_detect import assign_character_voices, book_features, detect_style, fallback_style
 from .tts import plan_tts_requests
 from .tuning import EXPRESSIVENESS, PACE, PAUSES
 from .ui import Ui
@@ -125,7 +125,9 @@ def import_book(
         detected = None
         if client is not None:
             try:
-                detected = detect_style(project.ingest_dir, config, client, pages)
+                detected = detect_style(
+                    project.ingest_dir, config, client, pages, project.data["narration"]["voice"]
+                )
                 ai_used = True
             except Exception as exc:
                 ui.warn(f"style analysis failed ({exc}); writing a neutral style instead")
@@ -134,6 +136,12 @@ def import_book(
         detected = detected or fallback_style(features)
         _write_style(project, detected)
         _apply_recommendations(project, detected.get("recommended") or {})
+        if not project.data.get("character_voices"):
+            project.data["character_voices"] = assign_character_voices(
+                project.data["narration"]["voice"],
+                list(features.get("speaker_counts") or {}),
+                detected.get("speaker_voices"),
+            )
         ui.ok(f"wrote {project.style_path}")
     project.save()
     _report_import(ui, project, manifest, features, first_time_style, ai_used)
@@ -186,7 +194,10 @@ def _report_import(ui: Ui, project: Project, manifest: dict, features: dict, sty
         ui.kv("skipped", f"{len(skipped)} contents page(s): {pages}")
     ui.kv("narration", f"~{features['minutes_estimate']} min · {features['words']:,} words")
     ui.kv("content", f"{features['figures']} figures · {features['formulas']} formulas · {features['footnotes']} footnotes")
-    if features["dialogue_speakers"]:
+    voices = project.data.get("character_voices") or {}
+    if voices:
+        ui.kv("speakers", ", ".join(f"{name} → {voice}" for name, voice in voices.items()))
+    elif features["dialogue_speakers"]:
         ui.kv("speakers", ", ".join(features["dialogue_speakers"]))
     if manifest.get("warnings"):
         ui.warn(f"{len(manifest['warnings'])} extraction warnings (see ingest/manifest.json)")

@@ -146,3 +146,63 @@ def test_flat_delivery_is_flagged_only_for_long_untagged_text():
     assert not flat_delivery_errors(lively, config)
     short = {"turns": [{"text": "word " * 10, "style": ""}]}
     assert not flat_delivery_errors(short, config)
+
+
+def test_long_pause_is_rewritten_and_no_longer_allowed():
+    from pdf_expressive_audiobook.tts import speakable_text
+
+    config = load_config(ROOT / "config" / "default.toml")
+    assert "<long pause>" not in config.prep.allowed_tags
+    assert speakable_text("Wait. <long pause> Go.") == "Wait. <short pause> <short pause> Go."
+
+
+def _chunk(text, speakers=("Achilles",)):
+    from pdf_expressive_audiobook.models import Chunk
+
+    return Chunk(
+        id="c001-0000", chapter_id="ch-001", chapter_index=1, chapter_title="t", order=0, kind="dialogue",
+        text=text, speakers=list(speakers), source_pages=[1], estimated_duration_sec=5, word_count=8,
+        block_ids=["b-1"], segments=[{"speaker": "Achilles", "text": text, "block_ids": ["b-1"]}],
+    )
+
+
+def _output(text, speaker="Achilles"):
+    return {
+        "prompt_version": "prep-v1", "chunk_id": "c001-0000",
+        "turns": [{"text": text, "style": "", "speaker": speaker, "rationale": "r", "block_ids": ["b-1"],
+                   "inserted_descriptions": []}],
+    }
+
+
+def test_validator_rejects_speaker_labels_and_typographic_art():
+    from pdf_expressive_audiobook.prep import validate_prep_output
+
+    config = load_config(ROOT / "config" / "default.toml")
+    chunk = _chunk("Hello there.")
+    assert not validate_prep_output(_output("Hello there."), chunk, config)
+    assert any("speaker label" in e for e in validate_prep_output(_output("Achilles: Hello there."), chunk, config))
+    assert any("typographic art" in e for e in validate_prep_output(_output("C---- four"), chunk, config))
+    assert not validate_prep_output(_output("C, dash dash dash dash, four"), chunk, config)
+
+
+def test_chunks_keep_who_says_what():
+    from pdf_expressive_audiobook.chunking import chunk_chapter
+    from pdf_expressive_audiobook.models import Block, Chapter
+
+    def block(n, speaker, text):
+        return Block(id=f"b-{n}", kind="dialogue_turn" if speaker else "paragraph", text=text,
+                     page_start=1, page_end=1, stream_index=n, speaker=speaker)
+
+    chapter = Chapter(id="ch-001", index=1, title="t", kind="prose", page_start=1, page_end=1, detection="x",
+                      blocks=[block(1, None, "The phone rings."), block(2, "Achilles", "Hello."),
+                              block(3, "Tortoise", "Hi there.")])
+    chunk = chunk_chapter(chapter)[0]
+    assert [s["speaker"] for s in chunk.segments] == ["narrator", "Achilles", "Tortoise"]
+
+
+def test_character_voices_are_distinct_valid_and_skip_the_narrator():
+    from pdf_expressive_audiobook.style_detect import assign_character_voices
+
+    voices = assign_character_voices("Schedar", ["A", "B", "C"], {"A": "Puck", "B": "Puck", "C": "Schedar", "D": "x"})
+    assert voices["A"] == "Puck"
+    assert len(set(voices.values())) == 3 and "Schedar" not in voices.values()

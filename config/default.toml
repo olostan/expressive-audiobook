@@ -70,7 +70,6 @@ allowed_tags = [
   "<snort>",
   "<yawn>",
   "<short pause>",
-  "<long pause>",
   "<whispers>",
   "<whispering>",
   "<argh>",

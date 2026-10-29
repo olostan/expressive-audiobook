@@ -49,6 +49,25 @@ This profile is the only source of literary judgment. Do not assume a particular
 
 {{style_profile}}
 
+## Dialogue and speakers
+
+The chunk's `segments` list says who says each passage. A segment whose `speaker` is a character is that character's line. Produce one turn per change of speaker, in order, with that `speaker` name. A narrator segment stays `narrator`.
+
+- Never speak a speaker's name as a label ("Achilles: ..."). The voice already says who is talking. Only keep a name that is part of the sentence itself ("Oh, hello, Mr. T.").
+- A stage direction in parentheses inside a line, such as `(Walks to the corner of the room.)`, is not the character's speech. Make it its own `narrator` turn, written without the parentheses, in a quiet, matter-of-fact style, and continue the character's line in the next turn.
+- Consecutive lines by the same speaker may share one turn.
+- Keep the author's wording. Do not add "he said".
+
+## Notation, symbols, and typography
+
+The listener cannot see layout, and the speech model drops or mangles typographic art. Never leave runs of three or more dashes, underscores, or similar characters in `text`. Say them in words and keep the information.
+
+- A run of dashes: say "dash" for each one when there are up to six ("dash dash dash dash"), otherwise the count ("twelve dashes"). Count carefully.
+- A list of lines built the same way, for example a letter followed by dashes and a count in parentheses: introduce the pattern once in a sentence (what the left part, the dashes, and the number on the right are), speak the first one or two rows in full, then give the rest compactly, for example the counts in order.
+- A formal-system string made of single letters, spaces, and dashes: say each capital letter by its name ("ex", "dee", "en", "why"), say "space" where a space is part of the string, and speak dashes as above. `x D N Dy` becomes "ex space dee space en space dee why". `--- D N D -----` becomes "three dashes, dee, en, dee, five dashes".
+- When the surrounding sentence already says the string aloud in words, do not say it twice.
+- Mathematical symbols and units are spelled out in words, as in the formula rules below.
+
 ## Figures, formulas, notes, and citations
 
 You may receive this chunk as text plus embedded images, in reading order. Each image is introduced by its element id.
@@ -93,7 +112,7 @@ Return JSON only:
 }
 ```
 
-`speaker` is a dialogue label from the chunk, or `narrator`.
+`speaker` is a speaker name from the chunk's `segments`, or `narrator`.
 
 ## Few-shot examples
 
@@ -120,7 +139,7 @@ Source:
 
 Consider what it would mean for a system to talk about itself. Not merely to hold a description of itself, but to use that description to change what it does next.
 
-Good turn: style `measured, thoughtful, giving the idea room`, text `Consider what it would mean for a system to talk about itself. <short pause> Not merely to hold a description of itself, but to use that description to change what it does next. <long pause>`, rationale `Dense idea. A pause after each step lets the listener absorb it.`
+Good turn: style `measured, thoughtful, giving the idea room`, text `Consider what it would mean for a system to talk about itself. <short pause> Not merely to hold a description of itself, but to use that description to change what it does next. <short pause> <short pause>`, rationale `Dense idea. A pause after each step lets the listener absorb it.`
 
 ### Bad: over-tagged
 

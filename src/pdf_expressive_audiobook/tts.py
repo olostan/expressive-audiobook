@@ -325,11 +325,19 @@ def estimate_latency(
     return {"prep_seconds": prep, "tts_seconds": tts, "total_seconds": prep + tts}
 
 
+_LONG_PAUSE_RE = re.compile(r"<\s*long pause\s*>", re.IGNORECASE)
+
+
+def speakable_text(text: str) -> str:
+    """The model sometimes says the word "long" for <long pause>. Two short pauses sound the same."""
+    return _LONG_PAUSE_RE.sub("<short pause> <short pause>", text)
+
+
 def _resolve(turn: dict, profile: StyleProfile, config: TtsConfig) -> ResolvedTurn:
     speaker = str(turn.get("speaker") or "narrator")
     mapping = _voice_for(speaker, profile, config)
     return ResolvedTurn(
-        text=str(turn.get("text") or ""),
+        text=speakable_text(str(turn.get("text") or "")),
         style=str(turn.get("style") or ""),
         speaker=speaker,
         voice=mapping.voice,

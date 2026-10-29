@@ -41,6 +41,17 @@ _NON_SPEAKERS = {
     "part",
     "section",
     "table",
+    "introduction",
+    "examples",
+    "example",
+    "question",
+    "speculation",
+    "rule",
+    "answer",
+    "exercise",
+    "summary",
+    "remark",
+    "note to the reader",
 }
 _CAPTION_RE = re.compile(r"^(?:figure|fig\.?)\s+\d+\b", re.IGNORECASE)
 _FOOTNOTE_LINE_RE = re.compile(r"^([0-9]+|[*†‡])\s+(\S.*)$")
@@ -774,6 +785,8 @@ def _speaker_name(text: str) -> str | None:
         return None
     speaker = match.group("speaker").strip()
     if speaker.lower() in _NON_SPEAKERS or speaker.lower().startswith("figure"):
+        return None
+    if re.match(r"^(?:part|chapter|section)\s+[ivxlcdm\d]+$", speaker, re.IGNORECASE):
         return None
     return speaker
 

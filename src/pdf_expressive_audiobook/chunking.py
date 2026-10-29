@@ -302,6 +302,11 @@ def _chunk_from_group(
         associated=associated,
         block_ids=block_ids,
         warnings=warnings,
+        segments=[
+            {"speaker": piece.speaker or "narrator", "text": piece.text, "block_ids": list(piece.block_ids)}
+            for piece in group
+            if piece.text
+        ],
     )
 
 
