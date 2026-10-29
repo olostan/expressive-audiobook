@@ -16,6 +16,7 @@ from jsonschema import Draft202012Validator
 from .config import AppConfig, PrepConfig, StyleProfile
 from .gemini_api import ModelOutputError, call_with_backoff, generate_prep
 from .models import Chunk, to_jsonable
+from .tuning import delivery_guidance
 from .textutil import count_sentences, estimate_seconds, spoken_source_words, split_sentences, word_count
 
 _TAG_RE = re.compile(r"<([^<>]+)>")
@@ -166,7 +167,10 @@ def prepare_chunk_output(
         if not errors:
             errors = validate_prep_output(output, chunk, config)
         if not errors:
-            return output
+            flat = flat_delivery_errors(output, config)
+            if not flat or attempt == attempts - 1:
+                return output
+            errors = flat
         previous = output
     raise ChunkPrepFailed(chunk.id, errors or ["no prep output"])
 
@@ -202,6 +206,7 @@ def render_prompt(
         "backchannels": ", ".join(config.backchannels),
         "style_examples": ", ".join(f'"{item}"' for item in config.style_examples),
         "style_profile": profile.render(),
+        "delivery_guidance": delivery_guidance(config.expressiveness, config.pace, config.pause_density),
         "prompt_version": config.prompt_version,
         "chunk_id": chunk.id,
         "chunk_json": json.dumps(to_jsonable(chunk), ensure_ascii=False, indent=2),
@@ -315,6 +320,28 @@ def validate_prep_output(output: dict, chunk: Chunk, config: AppConfig) -> list[
             descriptions.append((index, turn, item))
     errors.extend(_validate_descriptions(descriptions, turns, chunk, config))
     return errors
+
+
+def flat_delivery_errors(output: dict, config: AppConfig) -> list[str]:
+    """Soft check: a long passage with no tags and no style is under-performed."""
+    floor = config.prep.min_tags_per_100_words
+    if floor <= 0:
+        return []
+    turns = output.get("turns") or []
+    words = sum(spoken_source_words(turn.get("text") or "") for turn in turns)
+    if words < 40:
+        return []
+    marks = sum(len(_TAG_RE.findall(turn.get("text") or "")) for turn in turns)
+    marks += sum(len(_BACKCHANNEL_RE.findall(turn.get("text") or "")) for turn in turns)
+    styled = sum(1 for turn in turns if (turn.get("style") or "").strip())
+    needed = int(words * floor / 100)
+    if marks >= needed and (styled or marks):
+        return []
+    return [
+        f"the delivery is too flat: {marks} inline tags and {styled} styled turns for {words} words "
+        f"(expected at least {max(needed, 1)} tags). Add fitting inline tags, pauses, and a style. "
+        "Keep the transcript wording otherwise unchanged."
+    ]
 
 
 def assert_valid(output: dict, chunk: Chunk, config: AppConfig) -> None:

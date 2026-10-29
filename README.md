@@ -2,7 +2,7 @@
 
 Turn a PDF you own into a spoken chapter. You pick the PDF and the delivery. A style profile (or one line of direction) is the only place literary judgment lives: pace, vocal tags, character voices, and how diagrams and formulas should be spoken.
 
-The recommended first step is a one-minute sample. It runs text preparation, speech synthesis, and assembly on a short stretch of one chapter, writes a WAV you can play, and writes a review of the emotion and pace choices. That sample is stored apart from the full-chapter cache, so it does not count as progress on the chapter.
+Work happens in a **project**: one folder per book under `projects/<name>/` that holds the extracted chapters, your settings, the narration style, and every generated file. Import once, tune, then generate as often as you like. Every step is resumable.
 
 With no voice setup, speech uses the prebuilt Gemini voice **Schedar** (labeled "Even" in the Gemini voice list), which suits long-form narration.
 
@@ -35,6 +35,78 @@ Check the install:
 ```bash
 audiobook --version
 ```
+
+## Quick start: import, tune, prepare, generate
+
+```text
+audiobook import --pdf ~/Downloads/book.pdf --name mybook
+```
+
+1. **Import.** Reads the PDF into chapters (JSON), skips Contents pages, then asks Gemini to read the first ~5 pages and write a narration style. It prints what it found and what you can change. No speech is generated and almost nothing is spent.
+2. **Tune (optional).** Edit `projects/mybook/project.json` (voice, expressiveness, pace, pauses) and `projects/mybook/style.md` (narrator persona, traits, pronunciation, how to speak formulas and figures, free notes).
+3. **Prepare (optional).** Writes the narration for chapters: the spoken text, delivery style, and inline tags such as `<chuckle>` and `<short pause>`. Review it in `prep/review/chapter-NNN.md`, or edit `prep/outputs/chunks/*.json` by hand.
+
+   ```text
+   audiobook prepare --project mybook --chapter 4
+   audiobook prepare --project mybook --chapter 4-6
+   audiobook prepare --project mybook --all
+   ```
+4. **Generate.** Prepares anything not yet prepared, speaks it, and assembles audio.
+
+   ```text
+   audiobook generate --project mybook --chapter 4 --sample 30   # first 30 seconds of chapter 4
+   audiobook generate --project mybook --chapter 4               # the whole chapter
+   audiobook generate --project mybook --all                     # the book (also writes book.wav)
+   audiobook status --project mybook                             # progress per chapter
+   ```
+
+`--project` can be left out when `projects/` holds only one project. `gen` is short for `generate`. Add `--dry-run` to see the estimate without any API call, `--force` to redo cached results, `--quiet` (before the command) for plain output. Colors turn off automatically when output is not a terminal or `NO_COLOR` is set.
+
+### Resuming and changing your mind
+
+Stop with Ctrl-C at any time and run the same command again. Each chunk of narration and each speech clip is saved atomically with a fingerprint of everything that produced it: the text, `style.md`, the tuning, the voice, the models, and the prompt. Unchanged work is skipped (shown as `✓ cached`). Change a setting and only the affected chunks are redone, and stale clips are removed. A sample reuses the same cache as the full chapter, so listening to 30 seconds first costs nothing extra later.
+
+### project.json
+
+```json
+{
+  "narration": {
+    "voice": "Schedar",
+    "expressiveness": "medium",
+    "pace": "measured",
+    "pause_density": "generous"
+  },
+  "audio": { "gap_ms": null, "chapter_tail_ms": null },
+  "character_voices": { "Achilles": "Puck" },
+  "overrides": { "prep": { "temperature": 0.5 } }
+}
+```
+
+| Setting | Values | Effect |
+| --- | --- | --- |
+| `expressiveness` | `low`, `medium`, `high` | How often the narrator styles a passage and adds inline tags. If a passage comes back too flat, it is sent back once for more performance. |
+| `pace` | `brisk`, `normal`, `measured`, `slow` | Asks for an unhurried style on most turns. |
+| `pause_density` | `minimal`, `normal`, `generous` | How many `<short pause>` / `<long pause>` tags to write. Also sets the default silence between passages (250 / 500 / 900 ms) and at the end of a chapter. |
+| `gap_ms`, `chapter_tail_ms` | number or `null` | Silence between passages and after a chapter. `null` follows `pause_density`. |
+| `voice`, `lite` | a Gemini voice, true/false | Narrator voice; `lite` uses the cheaper speech model. |
+| `character_voices` | speaker to voice | Voices for characters in dialogue. |
+| `overrides` | any section of `config/default.toml` | Per-book changes to models, chunk length, retries, and so on. |
+
+Import suggests expressiveness, pace, and pauses from the book itself. `audiobook import --restyle` asks again.
+
+### Layout
+
+```text
+projects/mybook/
+  project.json   style.md
+  ingest/        manifest.json, chapters/NNN.json, page images
+  chunks/        prep/ (outputs, review/)   tts/   audio/ (clips, chapter-NNN.wav, book.wav)
+  samples/       chapter-004-30s.wav
+```
+
+`projects/` is ignored by git. Importing the same PDF again keeps your edits and does nothing; a different PDF under the same name needs `--force` and deletes the generated files.
+
+The sections below describe the lower-level, project-less commands. They still work and write to `artifacts/` (or to a project with `--project`).
 
 ## Choose a voice
 
@@ -86,7 +158,7 @@ audiobook sample --pdf /path/to/book.pdf --chapter 1 --style profiles/examples/n
 
 `--style-profile` is the same file form. When both are set, the file is the profile and `--style` is extra direction for that run. Nothing is written back to the file.
 
-## Find the chapter number
+## Find the chapter number (low-level commands)
 
 ```bash
 audiobook extract --pdf /path/to/book.pdf

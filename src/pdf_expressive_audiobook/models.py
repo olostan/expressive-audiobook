@@ -139,6 +139,7 @@ class Document:
     outline_used: bool
     detection: str
     warnings: list[str] = field(default_factory=list)
+    skipped_pages: list[dict] = field(default_factory=list)
 
 
 @dataclass

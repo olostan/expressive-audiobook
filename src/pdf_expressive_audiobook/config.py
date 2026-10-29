@@ -43,6 +43,7 @@ class IngestConfig:
     vector_cluster_gap: float = 18.0
     min_vector_area: float = 800.0
     full_page_image_ratio: float = 0.70
+    skip_contents: bool = True
 
 
 @dataclass
@@ -95,6 +96,11 @@ class PrepConfig:
     backoff_initial_seconds: float = 1.0
     backoff_multiplier: float = 2.0
     concurrency: int = 4
+    # Delivery tuning. A project's tuning block sets these; see tuning.py.
+    expressiveness: str = "medium"
+    pace: str = "normal"
+    pause_density: str = "normal"
+    min_tags_per_100_words: float = 0.0
     allowed_tags: list[str] = field(default_factory=list)
     backchannels: list[str] = field(default_factory=lambda: ["|mhm|", "|yeah|"])
     style_examples: list[str] = field(default_factory=list)
@@ -155,6 +161,7 @@ class TtsConfig:
 class AssembleConfig:
     gap_ms: float = 200
     crossfade_ms: float = 12
+    chapter_tail_ms: float = 0
     write_full_book: bool = True
 
 

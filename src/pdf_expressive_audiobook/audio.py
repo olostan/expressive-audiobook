@@ -181,10 +181,14 @@ def assemble_clips(
     sample_rate: int,
     gap_ms: float = 0,
     crossfade_ms: float = 0,
+    tail_ms: float = 0,
 ) -> PcmClip:
-    """Load WAV or raw PCM files in order and write one WAV."""
+    """Load WAV or raw PCM files in order and write one WAV, optionally ending in silence."""
     clips = [load_pcm(Path(path).read_bytes(), expected_rate=sample_rate) for path in paths]
     mixed = concatenate(clips, gap_ms=gap_ms, crossfade_ms=crossfade_ms)
+    if tail_ms > 0:
+        silence = b"\x00\x00" * int(round(mixed.sample_rate * tail_ms / 1000.0))
+        mixed = PcmClip(mixed.pcm + silence, mixed.sample_rate)
     write_wav(dest, mixed)
     return mixed
 

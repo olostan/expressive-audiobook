@@ -15,6 +15,7 @@ from .chunking import chunk_chapter, load_chapter_jsonl, write_chapter_jsonl
 from .config import AppConfig, StyleProfile, load_config
 from .ingest import extract_pdf, load_chapter, load_manifest
 from .models import Chunk, to_jsonable
+from .project import atomic_write, fingerprint
 from .prep import (
     build_prep_request,
     prepare_chunk_output,
@@ -129,6 +130,7 @@ def run_assemble(config: AppConfig, *, chapter: int | None = None) -> list[Path]
             sample_rate=config.tts.sample_rate,
             gap_ms=config.assemble.gap_ms,
             crossfade_ms=config.assemble.crossfade_ms,
+            tail_ms=config.assemble.chapter_tail_ms,
         )
         written.append(dest)
     if config.assemble.write_full_book and chapter is None and len(written) > 1:
@@ -286,9 +288,18 @@ def run_prep_model(
     *,
     chapter: int | None = None,
     only_ids: set[str] | None = None,
+    chapters: list[int] | None = None,
+    force: bool = False,
+    progress=None,
 ) -> list[Path]:
-    """Call the text model for each chunk. Completed chunk files are skipped."""
+    """Call the text model for each chunk. Chunks whose inputs are unchanged are skipped.
+
+    ``progress(status, chunk_id)`` is called with "cached", "done", or "failed".
+    """
     paths = _chunk_paths(config, chapter)
+    if chapters is not None:
+        wanted = {f"{index:03d}" for index in chapters}
+        paths = [path for path in paths if path.stem in wanted]
     jobs: list[tuple[Path, list[Chunk]]] = []
     for path in paths:
         chunks = load_chapter_jsonl(path)
@@ -313,10 +324,16 @@ def run_prep_model(
                         chapter_chunks,
                         positions[chunk.id],
                         chunk,
+                        force,
+                        progress,
                     )
                 )
-        for future in futures:
-            written.append(future.result())
+        results, failures = _gather(pool, futures)
+        written.extend(results)
+        if failures:
+            for index in sorted({chunk.chapter_index for _, chunks in jobs for chunk in chunks}):
+                _rewrite_prep_jsonl(config, index)
+            raise failures[0]
     chapters = {chunk.chapter_index for _, chunks in jobs for chunk in chunks}
     for index in sorted(chapters):
         _rewrite_prep_jsonl(config, index)
@@ -330,9 +347,18 @@ def run_tts_model(
     *,
     chapter: int | None = None,
     only_ids: set[str] | None = None,
+    chapters: list[int] | None = None,
+    force: bool = False,
+    progress=None,
 ) -> list[Path]:
-    """Synthesize planned requests. Existing playable clips are skipped."""
+    """Synthesize planned requests. Clips whose request is unchanged are skipped.
+
+    ``progress(status, name)`` is called with "cached", "done", or "failed".
+    """
     outputs = _load_prep_outputs(config, chapter)
+    if chapters is not None:
+        wanted_prefix = tuple(f"c{index:03d}-" for index in chapters)
+        outputs = {key: value for key, value in outputs.items() if key.startswith(wanted_prefix)}
     if only_ids is not None:
         outputs = {key: value for key, value in outputs.items() if key in only_ids}
     if not outputs:
@@ -352,7 +378,8 @@ def run_tts_model(
         plan_dir = Path(config.paths.tts) / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
         plan_path = plan_dir / f"{chunk_id}.json"
-        plan_path.write_text(
+        atomic_write(
+            plan_path,
             json.dumps(
                 {
                     "chunk_id": chunk_id,
@@ -363,16 +390,23 @@ def run_tts_model(
                 indent=2,
             )
             + "\n",
-            encoding="utf-8",
         )
+        expected = set()
         for request_index, request in enumerate(requests):
             dest = _clip_path(config, chapter_index, order, chunk_id, request_index)
+            expected.add(dest.name)
             jobs.append((request, dest))
+        _remove_stale_clips(config, chapter_index, chunk_id, expected)
     workers = max(1, int(config.tts.concurrency))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(_synthesize_one, client, config, request, dest) for request, dest in jobs]
-        for future in futures:
-            written.append(future.result())
+        futures = [
+            pool.submit(_synthesize_one, client, config, request, dest, force, progress)
+            for request, dest in jobs
+        ]
+        results, failures = _gather(pool, futures)
+        written.extend(results)
+        if failures:
+            raise failures[0]
     return written
 
 
@@ -490,15 +524,17 @@ def chapter_rows(config: AppConfig) -> list[dict]:
     return list(manifest.get("chapters") or [])
 
 
-def _prep_one(config, profile, client, chunks: list[Chunk], index: int, chunk: Chunk) -> Path:
+def _prep_one(
+    config,
+    profile,
+    client,
+    chunks: list[Chunk],
+    index: int,
+    chunk: Chunk,
+    force: bool = False,
+    progress=None,
+) -> Path:
     dest = _prep_chunk_path(config, chunk.id)
-    if dest.exists():
-        try:
-            existing = json.loads(dest.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            existing = None
-        if isinstance(existing, dict) and not schema_errors(existing) and not validate_prep_output(existing, chunk, config):
-            return dest
     neighbor_count = max(0, int(config.prep.neighbor_chunks))
     previous_text = _neighbor_text(chunks, max(0, index - neighbor_count), index)
     following_text = _neighbor_text(chunks, index + 1, index + 1 + neighbor_count)
@@ -511,37 +547,105 @@ def _prep_one(config, profile, client, chunks: list[Chunk], index: int, chunk: C
         following_text=following_text,
         image_root=image_root,
     )
+    stamp = fingerprint(request)
+    if not force and dest.exists() and _fingerprint_matches(dest, stamp):
+        try:
+            existing = json.loads(dest.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            existing = None
+        if isinstance(existing, dict) and not schema_errors(existing) and not validate_prep_output(existing, chunk, config):
+            if progress:
+                progress("cached", chunk.id)
+            return dest
     request_path = Path(config.paths.prep) / "requests" / f"{chunk.id}.json"
-    request_path.parent.mkdir(parents=True, exist_ok=True)
-    request_path.write_text(json.dumps(request, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    output = prepare_chunk_output(
-        chunk,
-        profile,
-        config,
-        client,
-        previous_text=previous_text,
-        following_text=following_text,
-        image_root=image_root,
-        request=request,
-    )
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write(request_path, json.dumps(request, ensure_ascii=False, indent=2) + "\n")
+    try:
+        output = prepare_chunk_output(
+            chunk,
+            profile,
+            config,
+            client,
+            previous_text=previous_text,
+            following_text=following_text,
+            image_root=image_root,
+            request=request,
+        )
+    except Exception:
+        if progress:
+            progress("failed", chunk.id)
+        raise
+    atomic_write(dest, json.dumps(output, ensure_ascii=False, indent=2) + "\n")
+    _write_fingerprint(dest, stamp)
+    if progress:
+        progress("done", chunk.id)
     return dest
 
 
-def _synthesize_one(client, config: AppConfig, request, dest: Path) -> Path:
-    if dest.exists():
+def _gather(pool, futures) -> tuple[list, list]:
+    """Wait for every job. Ctrl-C cancels the queue instead of finishing it."""
+    results, failures = [], []
+    try:
+        for future in futures:
+            try:
+                results.append(future.result())
+            except Exception as exc:  # finish the rest so one bad chunk does not waste the others
+                failures.append(exc)
+    except KeyboardInterrupt:
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    return results, failures
+
+
+def _fingerprint_path(dest: Path) -> Path:
+    return dest.with_name(dest.name + ".fp")
+
+
+def _fingerprint_matches(dest: Path, stamp: str) -> bool:
+    """A file with no recorded fingerprint predates tracking and is kept."""
+    marker = _fingerprint_path(dest)
+    if not marker.exists():
+        return True
+    return marker.read_text(encoding="utf-8").strip() == stamp
+
+
+def _write_fingerprint(dest: Path, stamp: str) -> None:
+    atomic_write(_fingerprint_path(dest), stamp + "\n")
+
+
+def _synthesize_one(client, config: AppConfig, request, dest: Path, force: bool = False, progress=None) -> Path:
+    stamp = fingerprint(request.payload)
+    if not force and dest.exists() and _fingerprint_matches(dest, stamp):
         try:
             load_pcm(dest.read_bytes(), expected_rate=config.tts.sample_rate)
+            if progress:
+                progress("cached", dest.name)
             return dest
         except Exception:
             pass
-    pcm = client.synthesize(request)
-    clip = load_pcm(pcm, expected_rate=config.tts.sample_rate)
-    if not isinstance(clip, PcmClip):
-        raise RuntimeError(f"Speech response for {dest.name} was not PCM")
-    write_wav(dest, clip)
+    try:
+        pcm = client.synthesize(request)
+        clip = load_pcm(pcm, expected_rate=config.tts.sample_rate)
+        if not isinstance(clip, PcmClip):
+            raise RuntimeError(f"Speech response for {dest.name} was not PCM")
+        write_wav(dest, clip)
+    except Exception:
+        if progress:
+            progress("failed", dest.name)
+        raise
+    _write_fingerprint(dest, stamp)
+    if progress:
+        progress("done", dest.name)
     return dest
+
+
+def _remove_stale_clips(config: AppConfig, chapter_index: int, chunk_id: str, expected: set[str]) -> None:
+    folder = Path(config.paths.audio) / "clips" / f"{chapter_index:03d}"
+    if not folder.exists():
+        return
+    for path in folder.glob(f"*-{chunk_id}-r*.wav"):
+        if path.name not in expected:
+            path.unlink(missing_ok=True)
+            _fingerprint_path(path).unlink(missing_ok=True)
 
 
 def _prep_chunk_path(config: AppConfig, chunk_id: str) -> Path:

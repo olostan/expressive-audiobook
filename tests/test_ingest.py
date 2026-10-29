@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from PIL import Image
@@ -23,7 +24,8 @@ def test_outline_pdf_preserves_structure_and_linked_elements(tmp_path: Path):
     prose = _by_title(document, "Open Road")
     dialogue = _by_title(document, "Gate Said")
     marks = _by_title(document, "Marks on the Page")
-    assert any(chapter.kind == "front_matter" for chapter in document.chapters)
+    assert not any(chapter.kind == "front_matter" for chapter in document.chapters)
+    assert [item["page"] for item in document.skipped_pages] == [1]
 
     prose_text = "\n".join(block.text for block in prose.blocks)
     assert "reconsider" in prose_text
@@ -102,3 +104,19 @@ def test_heuristic_and_toc_detection(tmp_path: Path):
     assert toc.detection == "toc"
     titles = [chapter.title for chapter in toc.chapters if chapter.kind != "front_matter"]
     assert titles == ["Chapter 1. Alpha", "Chapter 2. Beta"]
+
+
+def test_contents_pages_are_skipped_not_narrated(tmp_path: Path):
+    contents = tmp_path / "toc.pdf"
+    build_toc_pdf(contents)
+    document = extract_pdf(contents, tmp_path / "toc", IngestConfig())
+    assert [item["page"] for item in document.skipped_pages] == [1]
+    assert all(chapter.kind != "front_matter" for chapter in document.chapters)
+    text = " ".join(block.text for chapter in document.chapters for block in chapter.blocks)
+    assert "Contents" not in text and "......" not in text
+    manifest = json.loads((tmp_path / "toc" / "manifest.json").read_text())
+    assert manifest["skipped_pages"] == [{"page": 1, "reason": "contents"}]
+
+    kept = extract_pdf(contents, tmp_path / "keep", IngestConfig(skip_contents=False))
+    assert kept.skipped_pages == []
+    assert any(chapter.kind == "front_matter" for chapter in kept.chapters)

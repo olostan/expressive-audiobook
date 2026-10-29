@@ -1,5 +1,7 @@
 # Style profile
 
+In a project the profile lives in `projects/<name>/style.md`: the fields below are YAML front matter, and the Markdown after it is `free_text` (narration notes). `audiobook import` writes it from the book's opening pages; edit it freely, and `import --restyle` regenerates it. Delivery tuning (expressiveness, pace, pauses, voice) lives in `project.json`, not here.
+
 A style profile is the only literary input besides the PDF. Pass a file with `--style path.yaml` or `--style-profile path.yaml` (YAML or TOML). A `--style` value that is not a profile path is appended to `free_text` for that run and is not written back to the file. `--voice` overrides the narrator for that run: a prebuilt name such as `Schedar`, a library id, or a `voice_...` id from `audiobook voices design`.
 
 The JSON Schema is `profiles/schema.json`. Two generic examples live in `profiles/examples/`:

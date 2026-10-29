@@ -25,7 +25,10 @@ from .pipeline import (
     select_chunks,
 )
 from .prep import ChunkPrepFailed, GeminiTextPrepClient
+from .project import ProjectError, list_projects, projects_dir, resolve_project
 from .tts import GeminiTtsClient, classify_voice_name
+from .ui import Ui
+from .workflow import generate_book, import_book, parse_chapters, prepare_book, project_status
 
 
 def main(argv: list[str] | None = None, *, prep_client=None, tts_client=None) -> int:
@@ -35,7 +38,25 @@ def main(argv: list[str] | None = None, *, prep_client=None, tts_client=None) ->
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--config", help="Path to a TOML config file")
+    parser.add_argument("--quiet", action="store_true", help="Print only errors and results")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    imp = sub.add_parser("import", help="Import a PDF into a new project (chapters, project.json, style.md)")
+    imp.add_argument("--pdf", required=True, help="Path to the book PDF")
+    imp.add_argument("--name", required=True, help="Project name; becomes projects/<name>/")
+    imp.add_argument("--force", action="store_true", help="Extract again, even if the PDF is unchanged")
+    imp.add_argument("--restyle", action="store_true", help="Regenerate style.md and the suggested tuning")
+    imp.add_argument("--style-pages", type=int, default=None, help="Pages to analyse for style (default 5)")
+
+    prepare = sub.add_parser("prepare", help="Write narration text, styles and tags for chapters, to review")
+    _add_selection(prepare)
+
+    generate = sub.add_parser("generate", aliases=["gen"], help="Prepare if needed, then speak and assemble audio")
+    _add_selection(generate)
+
+    status = sub.add_parser("status", help="Show per-chapter progress of a project")
+
+    sub.add_parser("projects", help="List projects")
 
     extract = sub.add_parser("extract", help="Stage 1: PDF to per-chapter JSON")
     _add_chapter(extract, required=False)
@@ -103,11 +124,25 @@ def main(argv: list[str] | None = None, *, prep_client=None, tts_client=None) ->
     voices_design.add_argument("--language", default=None, help="BCP-47 tag such as en-US")
     voices_design.add_argument("--gender", default=None)
 
+    seen = set()
+    for child in sub.choices.values():
+        if id(child) not in seen:
+            seen.add(id(child))
+            child.add_argument("--project", default=argparse.SUPPRESS, help="Project name (default: the only project)")
+            child.add_argument("--projects-dir", default=argparse.SUPPRESS, help="Folder holding projects (default ./projects)")
+    parser.add_argument("--project", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--projects-dir", default=None, help=argparse.SUPPRESS)
+
     args = parser.parse_args(argv)
     try:
         return _dispatch(args, prep_client=prep_client, tts_client=tts_client)
-    except (FileNotFoundError, RuntimeError, ValueError, AudioFormatError, ChunkPrepFailed) as exc:
-        print(str(exc), file=sys.stderr)
+    except KeyboardInterrupt:
+        print("\nInterrupted. Run the same command again to resume where it stopped.", file=sys.stderr)
+        return 130
+    except (FileNotFoundError, RuntimeError, ValueError, AudioFormatError, ChunkPrepFailed, ProjectError) as exc:
+        print(Ui(sys.stderr).paint(str(exc), "red") if sys.stderr.isatty() else str(exc), file=sys.stderr)
+        if isinstance(exc, ChunkPrepFailed):
+            print("Other chunks were saved. Run the same command again to retry only this one.", file=sys.stderr)
         return 1
     except SystemExit as exc:
         if exc.code in (None, 0):
@@ -120,6 +155,38 @@ def main(argv: list[str] | None = None, *, prep_client=None, tts_client=None) ->
 
 def _dispatch(args: argparse.Namespace, *, prep_client, tts_client) -> int:
     config = resolve_config(args.config)
+    ui = Ui(quiet=getattr(args, "quiet", False))
+    base = projects_dir(getattr(args, "projects_dir", None))
+    if args.command == "import":
+        project = import_book(
+            Path(args.pdf),
+            args.name,
+            config,
+            ui=ui,
+            client=_optional_prep_client(config, prep_client),
+            base_dir=base,
+            force=args.force,
+            restyle=args.restyle,
+            style_pages=args.style_pages,
+        )
+        return 0
+    if args.command == "projects":
+        names = list_projects(base)
+        if not names:
+            print(f"No projects in {base}")
+        for name in names:
+            print(name)
+        return 0
+    project = None
+    if args.command in {"prepare", "generate", "gen", "status"} or getattr(args, "project", None):
+        project = resolve_project(getattr(args, "project", None), base)
+        if args.command not in {"prepare", "generate", "gen", "status"}:
+            config = project.config(config)
+    if args.command == "status":
+        project_status(project, config, ui=ui)
+        return 0
+    if args.command in {"prepare", "generate", "gen"}:
+        return _project_run(args, project, config, ui, prep_client, tts_client)
     if args.command == "extract":
         paths = run_extract(args.pdf, config, chapter=args.chapter)
         _print_paths("extracted", paths)
@@ -207,6 +274,31 @@ def _dispatch(args: argparse.Namespace, *, prep_client, tts_client) -> int:
     return 2
 
 
+def _project_run(args, project, config, ui, prep_client, tts_client) -> int:
+    chapters = parse_chapters(args.chapter)
+    if args.chapter is None and not args.all:
+        raise ProjectError("Say what to work on: --chapter N (also 3-5 or 1,4) or --all")
+    if args.chapter is not None and args.all:
+        raise ProjectError("Use either --chapter or --all, not both")
+    if args.sample is not None and args.sample <= 0:
+        raise ProjectError("--sample must be a number of seconds greater than 0")
+    prep = None if args.dry_run else _prep_client(config, prep_client, required=True)
+    if args.command == "prepare":
+        prepare_book(project, config, prep, ui=ui, chapters=chapters, sample=args.sample,
+                     force=args.force, dry_run=args.dry_run)
+        return 0
+    tts = None if args.dry_run else _tts_client(config, tts_client, required=True)
+    generate_book(project, config, prep, tts, ui=ui, chapters=chapters, sample=args.sample,
+                  force=args.force, dry_run=args.dry_run)
+    return 0
+
+
+def _optional_prep_client(config, prep_client):
+    if prep_client is not None:
+        return prep_client
+    return GeminiTextPrepClient(gemini_api_key(), config) if gemini_api_key() else None
+
+
 def _run(config, args, *, prep_client, tts_client) -> int:
     config, profile = _runtime(config, args)
     sample_seconds = args.sample_seconds
@@ -288,20 +380,33 @@ def _runtime(config, args):
     return config, profile
 
 
-def _prep_client(config, prep_client):
+def _prep_client(config, prep_client, required: bool = False):
     if prep_client is not None:
         return prep_client
+    if required and not gemini_api_key():
+        raise ProjectError("GEMINI_API_KEY is not set. Put it in .env or the environment (see .env.example).")
     return GeminiTextPrepClient(gemini_api_key(), config)
 
 
-def _tts_client(config, tts_client):
+def _tts_client(config, tts_client, required: bool = False):
     if tts_client is not None:
         return tts_client
+    if required and not gemini_api_key():
+        raise ProjectError("GEMINI_API_KEY is not set. Put it in .env or the environment (see .env.example).")
     return GeminiTtsClient(gemini_api_key(), config)
 
 
 def _add_chapter(parser: argparse.ArgumentParser, *, required: bool) -> None:
     parser.add_argument("--chapter", type=int, required=required, help="1-based chapter index")
+
+
+def _add_selection(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--chapter", default=None, help="Chapter(s): 3, 3-5, or 1,4,7")
+    parser.add_argument("--all", action="store_true", help="Every chapter of the book")
+    parser.add_argument("--sample", type=float, default=None, metavar="SECONDS",
+                        help="Only the first SECONDS of each selected chapter, e.g. --sample 30")
+    parser.add_argument("--force", action="store_true", help="Ignore cached results and redo them")
+    parser.add_argument("--dry-run", action="store_true", help="Show the estimate and stop before any API call")
 
 
 def _add_style(parser: argparse.ArgumentParser) -> None:

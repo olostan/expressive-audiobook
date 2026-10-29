@@ -17,9 +17,11 @@ Do not wait for an explicit cue such as the word "laughed" or "sadly". Read this
 
 Where a skilled audiobook narrator would laugh, sigh, breathe, pause, or change pace, mark that performance.
 
-Start from an empty or minimal style. Most sentences need no style and no tag. Escalate only where the inferred emotion demands it. Use a non-empty style together with inline tags for intense emotion, not for flat narration.
+Your job is to make this sound like a skilled human narrator performing the book, not a screen reader. Flat, unmarked delivery is the failure to avoid. Do not invent drama the text does not carry, and do not tag every clause.
 
-Tagging is liberal but tasteful. Piling a tag onto every clause is a failure. Leaving an obvious emotional beat unmarked is also a failure.
+{{delivery_guidance}}
+
+A non-empty `style` is welcome wherever the register differs from plain exposition: warmth, wry amusement, wonder, gravity, urgency, a quiet aside. Pair it with inline tags where a human would audibly react. Reserve an empty style for truly neutral transitions.
 
 Emphasis is a CAPITALIZED word in the transcript. Hesitation is punctuation and ellipses (...). For a hard name, write the word and then its IPA in slashes, using the lexicon in the style profile when it lists that word.
 
@@ -110,7 +112,15 @@ Good turns:
 
 ### Bad: under-tagged
 
-The same source with style `""` and no tags. This misses the laugh and the jab.
+The same source with style `""` and no tags. This misses the laugh and the jab. A whole chunk of philosophical or playful prose that comes back with no style, no tags, and no pauses is under-tagged.
+
+### Good: thinking room in dense exposition
+
+Source:
+
+Consider what it would mean for a system to talk about itself. Not merely to hold a description of itself, but to use that description to change what it does next.
+
+Good turn: style `measured, thoughtful, giving the idea room`, text `Consider what it would mean for a system to talk about itself. <short pause> Not merely to hold a description of itself, but to use that description to change what it does next. <long pause>`, rationale `Dense idea. A pause after each step lets the listener absorb it.`
 
 ### Bad: over-tagged
 

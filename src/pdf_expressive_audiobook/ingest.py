@@ -24,10 +24,10 @@ from .models import BBox, Block, Chapter, Document, LinkedElement, to_jsonable
 from .textutil import join_hyphenated_lines, normalize_text
 
 _CHAPTER_RE = re.compile(
-    r"^(?:chapter|part)\s+([0-9]+|[ivxlcdm]+)\b[.:)\-\s]*(.*)$",
+    r"^(?:chapter|part)\s+([0-9]+|[ivxlcdm]+)\b(?:\s*[.:)\-–—]\s*(.*)|\s*)$",
     re.IGNORECASE,
 )
-_DIALOGUE_RE = re.compile(r"^dialogue\b[.:)\-\s]*(.*)$", re.IGNORECASE)
+_DIALOGUE_RE = re.compile(r"^dialogue(?:\s*[.:)\-–—]\s*(.*)|\s*)$", re.IGNORECASE)
 _SPEAKER_RE = re.compile(
     r"^(?P<speaker>[A-Z][A-Za-z.'’\-]*(?:\s+[A-Z][A-Za-z.'’\-]*){0,3}):\s*(?P<rest>.*)$"
 )
@@ -56,6 +56,14 @@ _NUMERIC_CITE_RE = re.compile(r"\[(\d{1,3})\]")
 _XREF_RE = re.compile(r"\b((?:see\s+)?(?:chapter|section)\s+\d+)\b", re.IGNORECASE)
 _TOC_LINE_RE = re.compile(r"^(?P<title>.+?)(?:\s*\.{2,}|\s{2,})\s*(?P<page>\d+)\s*$")
 _CONTENTS_RE = re.compile(r"^(contents|table of contents)$", re.IGNORECASE)
+_TOC_HEADING_RE = re.compile(
+    r"^(?:table of contents|contents|(?:list|index) of (?:figures|illustrations|tables|plates))"
+    r"(?:\s+(?:[ivxlcdm]+|\d+))?\.?$",
+    re.IGNORECASE,
+)
+_TOC_TAIL_RE = re.compile(
+    r"[A-Za-z].*?(?:\.{2,}|…|\s)\s*(?P<page>\d{1,4}|(?=[ivxl]+$)x{0,3}(?:ix|iv|v?i{0,3}))\s*$"
+)
 _MATH_CHARS = set("=+-*/^_{}\\<>≤≥≠∞±×÷∑∫√")
 
 
@@ -113,9 +121,13 @@ def extract_pdf(
 
     document = pymupdf.open(pdf_path)
     try:
-        pages = [_read_page(document[index], index + 1) for index in range(document.page_count)]
+        page_count = document.page_count
+        pages = [_read_page(document[index], index + 1) for index in range(page_count)]
         _strip_running_matter(pages, config)
-        ranges, detection, outline_used = _detect_ranges(document, pages)
+        skipped = _contents_pages(pages) if config.skip_contents else {}
+        ranges, detection, outline_used = _detect_ranges(document, pages, set(skipped))
+        ranges = _drop_skipped(ranges, set(skipped))
+        _blank_pages(pages, set(skipped))
         title = (document.metadata or {}).get("title") or None
         if title is not None and not str(title).strip():
             title = None
@@ -140,6 +152,7 @@ def extract_pdf(
             outline_used=outline_used,
             detection=detection,
             warnings=warnings,
+            skipped_pages=[{"page": number, "reason": reason} for number, reason in sorted(skipped.items())],
         )
     finally:
         document.close()
@@ -150,6 +163,8 @@ def extract_pdf(
         "outline_used": result.outline_used,
         "detection": result.detection,
         "warnings": result.warnings,
+        "page_count": page_count,
+        "skipped_pages": result.skipped_pages,
         "chapters": [
             {
                 "index": chapter.index,
@@ -324,7 +339,51 @@ def _norm_key(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip().lower()
 
 
-def _detect_ranges(document: pymupdf.Document, pages: list[_Page]) -> tuple[list[_Range], str, bool]:
+def _contents_pages(pages: list[_Page]) -> dict[int, str]:
+    """Page numbers that only list chapter names and page numbers."""
+    found: dict[int, str] = {}
+    previous = False
+    for page in pages:
+        texts = [line.text.strip() for line in page.lines if line.text.strip()]
+        head = [index for index, text in enumerate(texts[:4]) if _TOC_HEADING_RE.match(text)]
+        body = [text for index, text in enumerate(texts) if not (head and index == head[0])]
+        tocish = sum(1 for text in body if _TOC_TAIL_RE.match(text))
+        ratio = tocish / len(body) if body else 0.0
+        if head:
+            hit = tocish >= 2 and ratio >= 0.4
+        elif previous:
+            hit = tocish >= 3 and ratio >= 0.6
+        else:
+            hit = tocish >= 8 and ratio >= 0.75
+        if hit:
+            found[page.number] = "contents"
+        previous = hit
+    return found
+
+
+def _drop_skipped(ranges: list[_Range], skip: set[int]) -> list[_Range]:
+    kept: list[_Range] = []
+    for item in ranges:
+        start, end = item.page_start, item.page_end
+        while start <= end and start in skip:
+            start += 1
+        while end >= start and end in skip:
+            end -= 1
+        if start <= end:
+            kept.append(_Range(start, end, item.title, item.detection, item.kind))
+    return kept or ranges
+
+
+def _blank_pages(pages: list[_Page], skip: set[int]) -> None:
+    for page in pages:
+        if page.number in skip:
+            page.lines, page.images, page.drawings = [], [], []
+
+
+def _detect_ranges(
+    document: pymupdf.Document, pages: list[_Page], skip: set[int] | None = None
+) -> tuple[list[_Range], str, bool]:
+    skip = skip or set()
     outline = _outline_entries(document)
     if outline:
         ranges = _with_front_matter(_ranges_from_entries(outline, len(pages), "outline"), len(pages))
@@ -333,7 +392,7 @@ def _detect_ranges(document: pymupdf.Document, pages: list[_Page]) -> tuple[list
     if toc:
         ranges = _with_front_matter(_ranges_from_entries(toc, len(pages), "toc"), len(pages))
         return ranges, "toc", False
-    heuristic = _heuristic_entries(pages)
+    heuristic = _heuristic_entries([page for page in pages if page.number not in skip])
     if heuristic:
         ranges = _with_front_matter(_ranges_from_entries(heuristic, len(pages), "heuristic"), len(pages))
         return ranges, "heuristic", False
@@ -398,7 +457,11 @@ def _chapter_title(line: _Line, body: float) -> str | None:
     if not text or _CAPTION_RE.match(text):
         return None
     if _CHAPTER_RE.match(text) or _DIALOGUE_RE.match(text):
-        return text
+        # A heading is a label; a running sentence after the number is summary prose.
+        remainder = re.sub(r"^\S+\s+\S+?[.:)\-–—]?\s*", "", text)
+        if len(text.split()) <= 12 and not re.search(r"\.\s+\S", remainder):
+            return text
+        return None
     if line.size >= max(body * 1.5, 16) and len(text) < 80 and len(text.split()) <= 14:
         if text.endswith(".") and not _CHAPTER_RE.match(text):
             return None
