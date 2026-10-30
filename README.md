@@ -384,6 +384,10 @@ pytest -m live
 
 `pytest` does not call Gemini. `pytest -m live` runs one short text-prep call and one short speech call with the default prebuilt voice, and checks that the audio is 24 kHz mono 16-bit WAV-compatible PCM. It is skipped unless `GEMINI_API_KEY` is set, and it spends a small amount of quota.
 
+## License
+
+Copyright 2026 Valentyn Shybanov. Licensed under the [Apache License, Version 2.0](LICENSE).
+
 ## Further reading
 
 - [docs/STYLE_PROFILE.md](docs/STYLE_PROFILE.md) — profile fields

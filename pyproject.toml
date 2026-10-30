@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "Turn a book you own (PDF, Markdown or text) into a multi-chapter expressive audiobook."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
-authors = [{ name = "olostan" }]
+license = { text = "Apache-2.0" }
+authors = [{ name = "Valentyn Shybanov" }]
 dependencies = [
   "pymupdf>=1.24",
   "pyyaml>=6",
