@@ -25,6 +25,14 @@ Optional:
 
 ## Install
 
+With Homebrew (macOS):
+
+```bash
+brew install olostan/tap/audiobook
+```
+
+This installs a small launcher plus ffmpeg and `uv`. The first run downloads the app's Python packages and caches them. Or install the latest from source:
+
 ```bash
 git clone https://github.com/olostan/expressive-audiobook.git
 cd expressive-audiobook
