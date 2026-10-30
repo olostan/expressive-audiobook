@@ -36,11 +36,14 @@ cp .env.example .env
 
 Open `.env` and set `GEMINI_API_KEY` to the key you created in AI Studio. `ELEVENLABS_API_KEY` can stay empty, and so can `GEMINI_API_KEY` if you run local models. The process environment wins over `.env`. The key is never read from a committed file.
 
-Check the install:
+Check the install, and your whole setup:
 
 ```bash
 audiobook --version
+audiobook doctor
 ```
+
+`audiobook doctor` checks Python, which API keys you need for the engines you chose (and which you do not), whether Ollama or an Orpheus server is reachable and has your model, whether Orpheus is installed, and the optional tools (ffmpeg, numpy, Tesseract, Stable Audio). Each problem comes with the command that fixes it, and the exit code is 1 when something required is missing. Keys are never printed. Add `--online` to confirm a Gemini key is accepted (one free request), and `--project NAME` to check against a project's own settings.
 
 ## Quick start: import, tune, prepare, generate
 

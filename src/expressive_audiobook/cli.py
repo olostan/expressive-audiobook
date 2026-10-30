@@ -55,6 +55,9 @@ def main(argv: list[str] | None = None, *, prep_client=None, tts_client=None) ->
     imp.add_argument("--sfx", type=float, default=None, metavar="0-1", help="Sound-effect intensity (0 = none)")
     imp.add_argument("--audience", choices=AUDIENCES, default=None, help="Who the book is for (default: detected)")
 
+    doctor = sub.add_parser("doctor", help="Check this machine and your setup (API keys, local models, tools) and say how to fix problems")
+    doctor.add_argument("--online", action="store_true", help="Also confirm the Gemini key is accepted (one free request)")
+
     prepare = sub.add_parser("prepare", help="Write narration text, styles and tags for chapters, to review")
     _add_selection(prepare)
 
@@ -207,6 +210,14 @@ def _dispatch(args: argparse.Namespace, *, prep_client, tts_client) -> int:
         for name in names:
             print(name)
         return 0
+    if args.command == "doctor":
+        from .doctor import run_doctor
+
+        project = None
+        if getattr(args, "project", None) or len(list_projects(base)) == 1:
+            project = resolve_project(getattr(args, "project", None), base)
+            config = project.config(config)
+        return run_doctor(config, ui, project=project, online=args.online, projects_base=base)
     project = None
     if args.command in {"prepare", "generate", "gen", "status"} or getattr(args, "project", None):
         project = resolve_project(getattr(args, "project", None), base)
