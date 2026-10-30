@@ -186,7 +186,7 @@ Stop with Ctrl-C at any time and run the same command again. Each chunk of narra
 | `gap_ms`, `chapter_tail_ms` | number or `null` | Silence between passages and after a chapter. `null` follows `pause_density`. |
 | `voice`, `lite` | a Gemini voice, true/false | Narrator voice; `lite` uses the cheaper speech model. |
 | `character_voices` | speaker to voice | Voices for characters in dialogue. |
-| `overrides` | any section of `config/default.toml` | Per-book changes to models, chunk length, retries, and so on. |
+| `overrides` | any section of `default.toml` | Per-book changes to models, chunk length, retries, and so on. |
 
 The old words (`low`/`medium`/`high`, `slow`/`measured`/`normal`/`brisk`, `minimal`/`normal`/`generous`) still work and map to numbers.
 
@@ -276,7 +276,7 @@ audiobook run --pdf /path/to/book.pdf --chapter 1 --style "even and clear" --max
 audiobook sample --pdf /path/to/book.pdf --chapter 1 --style "even and clear" --sample-seconds 60 --dry-run
 ```
 
-The lines are chunk count, estimated audio minutes, and estimated TTS cost in USD from `config/default.toml`. Prices there are a dated copy of the public Gemini price for `gemini-3.8-flash-tts`. Change them when the price page changes. Text-prep image tokens are not included. `--sample-seconds` and `--max-chunks` limit the estimate to the chunks that would actually be spoken.
+The lines are chunk count, estimated audio minutes, and estimated TTS cost in USD from `default.toml`. Prices there are a dated copy of the public Gemini price for `gemini-3.8-flash-tts`. Change them when the price page changes. Text-prep image tokens are not included. `--sample-seconds` and `--max-chunks` limit the estimate to the chunks that would actually be spoken.
 
 ### One-minute sample
 
@@ -367,7 +367,7 @@ Install the `tesseract` binary from your OS packages, set `ingest.ocr_enabled = 
 
 **Prep failed for chunk …** Read the errors. The usual causes are an inline tag that is not on the allowlist, a style string that quotes the transcript, raw math left in the spoken text, or a figure or note the model dropped. Tighten the style profile, delete that chunk's file under `projects/<name>/prep/outputs/chunks/`, and run `prepare` again. Finished chunks stay finished.
 
-**Rate limits.** The client already backs off on 429 and 5xx. If it still stops, lower `prep.concurrency` and `tts.concurrency` (in `overrides` in `project.json`, or `config/default.toml`) and run the same command again. Finished chunks and clips are skipped.
+**Rate limits.** The client already backs off on 429 and 5xx. If it still stops, lower `prep.concurrency` and `tts.concurrency` (in `overrides` in `project.json`, or `default.toml`) and run the same command again. Finished chunks and clips are skipped.
 
 **The voice sounds robotic.** Try another prebuilt voice (`Charon`, `Sulafat`, `Schedar`) with a 60-second sample. Add a short line to `style.md` such as `warm, unhurried, a little smile in the voice`. Do not pile tags onto every sentence.
 
@@ -393,4 +393,4 @@ Copyright 2026 Valentyn Shybanov. Licensed under the [Apache License, Version 2.
 - [docs/STYLE_PROFILE.md](docs/STYLE_PROFILE.md) — profile fields
 - [docs/NOTES.md](docs/NOTES.md) — extraction failure modes and the cost formula
 - [docs/GEMINI_API.md](docs/GEMINI_API.md) — model ids, speech fields, and voice design
-- `config/default.toml` — models, voices, retries, and prices
+- `src/expressive_audiobook/default.toml` — models, voices, retries, and prices (to change it for every run, copy it to `config/default.toml` in your working folder, or pass `--config`)

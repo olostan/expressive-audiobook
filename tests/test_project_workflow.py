@@ -47,7 +47,7 @@ class Prep:
             return STYLE
         self.calls += 1
         self.requests.append(text)
-        return _valid_from_request(request, load_config(ROOT / "config" / "default.toml"))
+        return _valid_from_request(request, load_config(ROOT / "src" / "expressive_audiobook" / "default.toml"))
 
 
 class Speech:
@@ -158,7 +158,7 @@ def test_generate_needs_a_selection_and_a_dry_run_calls_nothing(tmp_path):
 
 
 def test_flat_delivery_is_flagged_only_for_long_untagged_text():
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     config.prep.min_tags_per_100_words = 1.0
     flat = {"turns": [{"text": "word " * 120, "style": ""}]}
     assert flat_delivery_errors(flat, config)
@@ -171,7 +171,7 @@ def test_flat_delivery_is_flagged_only_for_long_untagged_text():
 def test_long_pause_is_rewritten_and_no_longer_allowed():
     from expressive_audiobook.tts import speakable_text
 
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     assert "<long pause>" not in config.prep.allowed_tags
     assert speakable_text("Wait. <long pause> Go.") == "Wait. <short pause> <short pause> Go."
 
@@ -207,7 +207,7 @@ def _output(text, speaker="Achilles"):
 def test_validator_rejects_speaker_labels_and_typographic_art():
     from expressive_audiobook.prep import validate_prep_output
 
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     chunk = _chunk("Hello there.")
     assert not validate_prep_output(_output("Hello there."), chunk, config)
     assert any("speaker label" in e for e in validate_prep_output(_output("Achilles: Hello there."), chunk, config))
@@ -289,7 +289,7 @@ def test_rejected_retry_request_falls_back_to_the_plain_request():
     class Rejected(Exception):
         code = 400
 
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     chunk = _chunk("Hello there.")
     calls = []
 

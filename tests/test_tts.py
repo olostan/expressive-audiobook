@@ -13,7 +13,7 @@ from expressive_audiobook.tts import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-CONFIG = load_config(ROOT / "config" / "default.toml")
+CONFIG = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
 
 
 def _profile() -> StyleProfile:
@@ -109,7 +109,7 @@ def test_single_prebuilt_speaker_stays_one_request_per_turn():
 
 
 def test_interactions_payload_uses_annotations():
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     config.tts.api = "interactions"
     requests = plan_tts_requests(
         [

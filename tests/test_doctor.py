@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _config(**sections):
-    return _merge_config(copy.deepcopy(load_config(ROOT / "config" / "default.toml")), sections)
+    return _merge_config(copy.deepcopy(load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")), sections)
 
 
 def _levels(doctor, label):

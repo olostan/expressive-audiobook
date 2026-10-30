@@ -1,6 +1,6 @@
 # Gemini API notes
 
-Checked against public documentation on 2026-10-24. Nothing here was confirmed by a live API call. Model ids and field names used by this repo live in `config/default.toml`, not as scattered literals.
+Checked against public documentation on 2026-10-24. Nothing here was confirmed by a live API call. Model ids and field names used by this repo live in `default.toml`, not as scattered literals.
 
 Sources:
 

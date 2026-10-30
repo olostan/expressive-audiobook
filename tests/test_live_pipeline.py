@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _config(tmp_path: Path) -> AppConfig:
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     config.paths.artifacts = str(tmp_path / "artifacts")
     config.paths.ingest = str(tmp_path / "artifacts" / "ingest")
     config.paths.chunks = str(tmp_path / "artifacts" / "chunks")
@@ -131,7 +131,7 @@ class _ScriptedPrep:
 
 
 def test_validation_errors_are_fed_back_and_then_accepted():
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     config.prep.max_validation_retries = 1
     chunk = _chunk()
     bad = {
@@ -155,7 +155,7 @@ def test_validation_errors_are_fed_back_and_then_accepted():
 
 
 def test_schema_errors_are_retried():
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     config.prep.max_validation_retries = 1
     chunk = _chunk()
     client = _ScriptedPrep([{"chunk_id": chunk.id}, _valid(chunk, config)])
@@ -165,7 +165,7 @@ def test_schema_errors_are_retried():
 
 
 def test_prep_failure_names_the_chunk():
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     config.prep.max_validation_retries = 1
     chunk = _chunk()
     bad = {"prompt_version": config.prep.prompt_version, "chunk_id": "other", "turns": []}
@@ -246,7 +246,7 @@ def test_select_chunks_reaches_the_duration_and_can_start_later():
 
 
 def test_estimate_uses_config_pricing():
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     text = format_estimate([_chunk(duration=10, words=100)], config)
     assert "chunks: 1\n" in text
     assert "audio_minutes: 0.17\n" in text
@@ -287,7 +287,7 @@ def _one_request(config, voice="Schedar", voice_type="prebuilt"):
 
 
 def test_synthesize_accepts_pcm_and_wav_and_retries_429():
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     config.tts.max_http_retries = 2
     config.tts.backoff_initial_seconds = 0.01
     pcm = b"\x01\x00\x02\x00\x03\x00\x04\x00"
@@ -318,7 +318,7 @@ def test_synthesize_accepts_pcm_and_wav_and_retries_429():
 
 
 def test_synthesize_posts_design_and_library_ids():
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     seen = {}
 
     def sender(method, url, headers, body):
@@ -359,7 +359,7 @@ def test_existing_clip_is_not_synthesized_again(tmp_path: Path):
 
 
 def test_design_voice_posts_prompted_body_and_prints_id():
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     seen = {}
 
     def sender(method, url, headers, body):
@@ -412,7 +412,7 @@ def test_sdk_prep_and_voice_design_use_the_client_methods():
 
 
 def test_prebuilt_names_are_checked_and_other_ids_pass():
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     assert config.tts.default_voice == "Schedar"
     assert config.tts.default_voice in PREBUILT_VOICES
     assert classify_voice_name("Schedar") == "prebuilt"

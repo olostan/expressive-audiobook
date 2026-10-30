@@ -124,7 +124,7 @@ def test_cli_extract_and_chunk(tmp_path: Path):
 def test_extract_library_round_trip_is_idempotent(tmp_path: Path):
     pdf = tmp_path / "book.pdf"
     build_outline_pdf(pdf)
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     config.paths.ingest = str(tmp_path / "ingest")
     config.paths.chunks = str(tmp_path / "chunks")
     run_extract(pdf, config)

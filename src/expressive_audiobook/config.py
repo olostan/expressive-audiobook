@@ -12,16 +12,12 @@ import yaml
 from .textutil import max_words_under, min_words_at
 
 
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
 def default_config_path() -> Path:
-    cwd = Path.cwd() / "config" / "default.toml"
-    if cwd.exists():
-        return cwd
-    packaged = repo_root() / "config" / "default.toml"
-    return packaged
+    """A ``config/default.toml`` in the working folder wins; otherwise the one shipped in the package."""
+    local = Path.cwd() / "config" / "default.toml"
+    if local.exists():
+        return local
+    return Path(__file__).resolve().with_name("default.toml")
 
 
 @dataclass

@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _config(**sections):
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     return _merge_config(copy.deepcopy(config), sections)
 
 

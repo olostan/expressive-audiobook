@@ -62,7 +62,7 @@ class Director:
                 ]
             }
         self.prep_calls += 1
-        return _valid_from_request(request, load_config(ROOT / "config" / "default.toml"))
+        return _valid_from_request(request, load_config(ROOT / "src" / "expressive_audiobook" / "default.toml"))
 
 
 class Voice:

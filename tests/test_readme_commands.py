@@ -16,7 +16,7 @@ class Prep:
     def generate(self, request):
         from expressive_audiobook.config import load_config
 
-        return _valid_from_request(request, load_config(ROOT / "config" / "default.toml"))
+        return _valid_from_request(request, load_config(ROOT / "src" / "expressive_audiobook" / "default.toml"))
 
 
 class Speech:

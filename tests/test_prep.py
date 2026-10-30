@@ -16,7 +16,7 @@ from expressive_audiobook.prep import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-CONFIG = load_config(ROOT / "config" / "default.toml")
+CONFIG = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
 PROFILE = load_style_profile(ROOT / "profiles" / "examples" / "neutral-narration.yaml")
 
 
@@ -354,7 +354,7 @@ def test_request_includes_images_in_reading_order_and_downscales(tmp_path: Path)
             image_path="wide.png",
         ),
     ]
-    config = load_config(ROOT / "config" / "default.toml")
+    config = load_config(ROOT / "src" / "expressive_audiobook" / "default.toml")
     config.prep.max_images_per_request = 2
     config.prep.max_image_edge_px = 1024
     request = build_prep_request(_chunk(associated), PROFILE, config, image_root=tmp_path)

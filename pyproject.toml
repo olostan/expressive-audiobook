@@ -32,7 +32,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-expressive_audiobook = ["prompts/*.md", "schemas/*.json"]
+expressive_audiobook = ["default.toml", "prompts/*.md", "schemas/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
