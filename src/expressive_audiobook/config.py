@@ -104,6 +104,7 @@ class PrepConfig:
     allowed_tags: list[str] = field(default_factory=list)
     backchannels: list[str] = field(default_factory=lambda: ["|mhm|", "|yeah|"])
     style_examples: list[str] = field(default_factory=list)
+    engine_notes: str = ""  # appended to the prompt for speech engines with different abilities
     fields: PrepFields = field(default_factory=PrepFields)
 
 
@@ -137,7 +138,52 @@ class TtsEndpoints:
 
 
 @dataclass
+class TextConfig:
+    """Which language model reads the book (prep, style detection, sound planning)."""
+
+    provider: str = "gemini"  # "gemini", or "openai" for any OpenAI-compatible server (Ollama, LM Studio, llama.cpp, ...)
+    model: str = ""  # used when provider is "openai", e.g. "qwen3:14b"
+    base_url: str = "http://localhost:11434/v1"
+    api_key_env: str = ""  # name of an environment variable holding a key; empty for local servers
+    json_mode: str = "json_object"  # "json_object", "none"
+    timeout_seconds: float = 600.0
+    max_http_retries: int = 3
+    backoff_initial_seconds: float = 2.0
+    backoff_multiplier: float = 2.0
+    vision: bool = False  # send page images to the model (needs a vision-capable model)
+
+
+@dataclass
+class OrpheusConfig:
+    """Orpheus 3B run locally through mlx-audio (Apple Silicon) in its own virtual environment."""
+
+    dir: str = ""  # empty: <models>/orpheus
+    model: str = "mlx-community/orpheus-3b-0.1-ft-bf16"
+    default_voice: str = "tara"
+    voices: list[str] = field(default_factory=lambda: ["tara", "leah", "jess", "leo", "dan", "mia", "zac", "zoe"])
+    temperature: float = 0.6
+    top_p: float = 0.8
+    repetition_penalty: float = 1.3
+    max_tokens: int = 1200
+    pause_ms: float = 350.0  # silence for each <short pause>
+
+
+@dataclass
+class SpeechHttpConfig:
+    """Any server with an OpenAI-style /v1/audio/speech endpoint (Orpheus-FastAPI, Kokoro-FastAPI, ...)."""
+
+    base_url: str = "http://localhost:5005/v1"
+    model: str = "orpheus"
+    default_voice: str = "tara"
+    api_key_env: str = ""
+    response_format: str = "wav"
+    pause_ms: float = 350.0
+    timeout_seconds: float = 600.0
+
+
+@dataclass
 class TtsConfig:
+    provider: str = "gemini"  # "gemini", "orpheus" (local) or "http" (OpenAI-style speech server)
     api: str = "generate_content"
     model: str = "gemini-3.8-flash-tts"
     lite_model: str = "gemini-3.8-flash-lite-tts"
@@ -155,6 +201,8 @@ class TtsConfig:
     concurrency: int = 2
     endpoints: TtsEndpoints = field(default_factory=TtsEndpoints)
     fields: TtsFields = field(default_factory=TtsFields)
+    orpheus: OrpheusConfig = field(default_factory=OrpheusConfig)
+    http: SpeechHttpConfig = field(default_factory=SpeechHttpConfig)
 
 
 @dataclass
@@ -216,6 +264,7 @@ class AppConfig:
     ingest: IngestConfig = field(default_factory=IngestConfig)
     chunking: ChunkingConfig = field(default_factory=ChunkingConfig)
     prep: PrepConfig = field(default_factory=PrepConfig)
+    text: TextConfig = field(default_factory=TextConfig)
     tts: TtsConfig = field(default_factory=TtsConfig)
     assemble: AssembleConfig = field(default_factory=AssembleConfig)
     sound: SoundConfig = field(default_factory=SoundConfig)
@@ -356,6 +405,15 @@ def load_env_file(path: Path | str = ".env") -> None:
             os.environ[key] = value
 
 
+def env_value(name: str) -> str | None:
+    """A value from the environment or .env, or None."""
+    if not name:
+        return None
+    load_env_file()
+    value = os.environ.get(name, "").strip()
+    return value or None
+
+
 def gemini_api_key() -> str | None:
     load_env_file()
     value = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -368,6 +426,7 @@ def _merge_config(config: AppConfig, raw: dict) -> AppConfig:
         "ingest": config.ingest,
         "chunking": config.chunking,
         "prep": config.prep,
+        "text": config.text,
         "tts": config.tts,
         "assemble": config.assemble,
         "sound": config.sound,
@@ -377,7 +436,39 @@ def _merge_config(config: AppConfig, raw: dict) -> AppConfig:
         section = raw.get(name)
         if isinstance(section, dict):
             _apply_section(target, section)
+    _apply_provider_defaults(config, raw)
     return config
+
+
+# What Orpheus can perform. Anything else in angle brackets would be read aloud.
+ORPHEUS_TAGS = ["<laugh>", "<chuckle>", "<sigh>", "<cough>", "<sniffle>", "<groan>", "<yawn>", "<gasp>", "<short pause>"]
+
+ORPHEUS_NOTES = (
+    "\n\nThis speech engine has no `style` control: `style` is kept for the human reviewer but is never spoken or "
+    "sent. All performance lives in `text`. Use only the allowed inline tags, CAPITALIZED words for emphasis, and "
+    "punctuation (commas, dashes, ellipses, short sentences) to shape pace. It cannot read IPA: for a hard name write "
+    "a plain phonetic respelling instead of slashes."
+)
+
+
+def _apply_provider_defaults(config: AppConfig, raw: dict) -> None:
+    """Fit the prep settings to the chosen models, unless the same merge sets them explicitly."""
+    prep_raw = raw.get("prep") if isinstance(raw.get("prep"), dict) else {}
+    tts_raw = raw.get("tts") if isinstance(raw.get("tts"), dict) else {}
+    if config.text.provider != "gemini" and "model" not in prep_raw and config.text.model:
+        config.prep.model = config.text.model
+    if config.tts.provider == "gemini":
+        return
+    if "allowed_tags" not in prep_raw:
+        config.prep.allowed_tags = list(ORPHEUS_TAGS)
+    if "backchannels" not in prep_raw:
+        config.prep.backchannels = []
+    if "engine_notes" not in prep_raw:
+        config.prep.engine_notes = ORPHEUS_NOTES
+    if "model" not in tts_raw:
+        config.tts.model = config.tts.orpheus.model if config.tts.provider == "orpheus" else config.tts.http.model
+    if "concurrency" not in tts_raw and config.tts.provider == "orpheus":
+        config.tts.concurrency = 1  # one model in memory, one clip at a time
 
 
 def _apply_section(target: object, section: dict) -> None:

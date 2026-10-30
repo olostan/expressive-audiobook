@@ -4,19 +4,24 @@ Turn a PDF, Markdown or text file you own into a spoken chapter. You pick the bo
 
 Work happens in a **project**: one folder per book under `projects/<name>/` that holds the extracted chapters, your settings, the narration style, and every generated file. Import once, tune, then generate as often as you like. Every step is resumable.
 
-With no voice setup, speech uses the prebuilt Gemini voice **Schedar** (labeled "Even" in the Gemini voice list), which suits long-form narration.
+**Google is optional.** Gemini is the zero-setup default, but you can run everything locally instead: a local language model such as Ollama reads the book, and Orpheus (on Apple Silicon) speaks it with laughs, sighs and pauses, with no API key at all. You can also mix: for example Ollama for reading and Gemini for speech. See [Run without Google](#run-without-google). ElevenLabs is optional too, and only used if you pick it for sound effects.
+
+With Gemini and no voice setup, speech uses the prebuilt voice **Schedar** (labeled "Even" in the Gemini voice list), which suits long-form narration.
 
 ## What you need
 
 - macOS or Linux
 - Python 3.11 or newer
-- A Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey)
+- A way to read and speak the book, either one of:
+  - a Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey) (the default, nothing else to install), or
+  - local models, with no Google account: Ollama (or another OpenAI-compatible server) for reading and Orpheus for speech (see [Run without Google](#run-without-google)).
 
 Optional:
 
-- ffmpeg, to also write MP3 or M4A copies of the audio (`brew install ffmpeg`).
-- Tesseract, only for scanned pages. Install the `tesseract` binary and `pip install -e ".[ocr]"`, then set `ingest.ocr_enabled` to `true` in a copy of `config/default.toml`.
-- ffmpeg is not required. Chapter and sample audio are ordinary WAV files written by Python; ffmpeg only adds MP3/M4A copies.
+- An ElevenLabs API key, only if you choose ElevenLabs for sound effects. Music and effects are made locally by default, so nothing needs ElevenLabs.
+- ffmpeg, to also write MP3 or M4A copies of the audio (`brew install ffmpeg`). Without it, chapter and sample audio are ordinary WAV files written by Python.
+- ffmpeg and `numpy` (`pip install -e ".[sound]"`) for mixing background music and sound effects; a local Stable Audio model makes the sounds (see below).
+- Tesseract, only for scanned pages. Install the `tesseract` binary and `pip install -e ".[ocr]"`, then set `"overrides": {"ingest": {"ocr_enabled": true}}` in the project's `project.json`.
 
 ## Install
 
@@ -29,7 +34,7 @@ pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-Open `.env` and set `GEMINI_API_KEY` to the key you created in AI Studio. The process environment wins over `.env`. The key is never read from a committed file.
+Open `.env` and set `GEMINI_API_KEY` to the key you created in AI Studio. `ELEVENLABS_API_KEY` can stay empty, and so can `GEMINI_API_KEY` if you run local models. The process environment wins over `.env`. The key is never read from a committed file.
 
 Check the install:
 
@@ -58,7 +63,7 @@ audiobook import --source ~/stories/pip.md --name pip        # Markdown or plain
    ```text
    audiobook generate --project mybook --chapter 4 --sample 30   # first 30 seconds of chapter 4
    audiobook generate --project mybook --chapter 4               # the whole chapter
-   audiobook generate --project mybook --all                     # the book (also writes book.wav)
+   audiobook generate --project mybook --all                     # the book (also writes the whole-book file)
    audiobook status --project mybook                             # progress per chapter
    ```
 
@@ -103,6 +108,47 @@ audiobook library add ~/Music/rain.flac --kind sfx --loop --title "Rain"
 
 New sounds start as `candidate`. Everything except `rejected` is mixed; set `sound.require_approval = true` (in `overrides`) to mix only items you have `approve`d. ElevenLabs can make the effects instead (`"overrides": {"sound": {"sfx_provider": "elevenlabs"}}`, with `ELEVENLABS_API_KEY` in `.env`). Mixing needs `ffmpeg` and `numpy` (`pip install -e ".[sound]"`). With music or effects on, chapters are written as 44.1 kHz stereo, and a `--dry-run` shows how many tracks and cues are planned.
 
+### Run without Google
+
+Gemini is the default, not a requirement. Two settings pick the models, and each can be changed on its own:
+
+| What | Setting | Choices |
+| --- | --- | --- |
+| Reading the book (narration prep, style detection, music and effects planning) | `text.provider` | `gemini`, or `openai` for any OpenAI-compatible server: **Ollama**, LM Studio, llama.cpp, vLLM or a hosted API |
+| Speaking | `tts.provider` | `gemini`, `orpheus` (runs on your Mac), or `http` (an OpenAI-style `/v1/audio/speech` server, for example Orpheus-FastAPI) |
+
+With both set to local engines there is no API key anywhere.
+
+```text
+ollama pull qwen3:14b                           # any chat model your machine can run
+audiobook models install orpheus                # one time, about 7 GB, Apple Silicon (uses mlx-audio)
+```
+
+Put the choice in a config file (used by `import`, which runs before a project exists) or in one project's `project.json`:
+
+```json
+{ "overrides": { "text": { "provider": "openai", "model": "qwen3:14b" },
+                 "tts":  { "provider": "orpheus" } } }
+```
+
+```toml
+# my-config.toml, used with: audiobook --config my-config.toml import --source book.pdf --name mybook
+[text]
+provider = "openai"
+model = "qwen3:14b"
+base_url = "http://localhost:11434/v1"   # Ollama; LM Studio is :1234
+[tts]
+provider = "orpheus"
+```
+
+What changes with a local engine:
+
+- **Orpheus is expressive through tags and punctuation, not a style line.** It performs `<laugh>`, `<chuckle>`, `<sigh>`, `<cough>`, `<sniffle>`, `<groan>`, `<yawn>` and `<gasp>`. The prep step is told this and uses only those tags, CAPITALIZED emphasis and punctuation. The per-turn `style` is kept for your review but is not spoken. `<short pause>` becomes real silence of `tts.orpheus.pause_ms`.
+- **Voices** are Orpheus's eight (`tara`, `leah`, `jess`, `leo`, `dan`, `mia`, `zac`, `zoe`). Set `narration.voice` to one, for example `"leo"`. Gemini names left in a project fall back to `tara` for the narrator, and each character gets a stable different voice. Designing voices (`voices design`) is Gemini-only.
+- **Speech runs one clip at a time** and costs nothing; `--dry-run` shows a cost of 0.
+- **A smaller text model follows the instructions less closely.** Prep checks every result (allowed tags, no dropped figures or notes) and asks the model to fix mistakes, so weak output costs time, not quality. Try a larger model if chunks keep failing. Page images are only sent when `text.vision = true` and the model can see.
+- Changing the engine changes the cache fingerprints, so only the affected work is redone.
+
 ### Where things live
 
 `~/.audiobook/` (override with `AUDIOBOOK_HOME`) holds `projects/`, `library/` and `models/`. A `./projects` folder keeps being used while it exists and `~/.audiobook/projects` does not.
@@ -134,12 +180,12 @@ Stop with Ctrl-C at any time and run the same command again. Each chunk of narra
 | `pause_density` | 0 to 1 | 0 means only punctuation pauses; 1 means frequent `<short pause>` tags (two in a row for a longer pause; the model sometimes speaks `<long pause>` aloud). Also sets the default silence between passages (250 ms at 0, 900 ms at 1) and at the end of a chapter. |
 | `audio.format` | `mp3`, `m4a`, `wav` | With `mp3` or `m4a` and `ffmpeg` installed, each chapter, sample and `book` is written as a compressed, tagged file (title, track, album), about 6 times smaller than WAV (WAV is 24 kHz mono, about 170 MB per hour). Without ffmpeg you get a note and WAV only. Default `mp3`. |
 | `audio.keep_wav` | true/false | Default `false`: the WAV is deleted once its MP3/M4A exists, and is not rebuilt while the compressed file is current. Set `true` to keep both. The per-passage speech clips in `audio/clips/` are always kept, so nothing is paid for twice. |
-| `gap_ms`, `chapter_tail_ms` | number or `null` | Silence between passages and after a chapter. `null` follows `pause_density`.
-
-The old words (`low`/`medium`/`high`, `slow`/`measured`/`normal`/`brisk`, `minimal`/`normal`/`generous`) still work and map to numbers. |
+| `gap_ms`, `chapter_tail_ms` | number or `null` | Silence between passages and after a chapter. `null` follows `pause_density`. |
 | `voice`, `lite` | a Gemini voice, true/false | Narrator voice; `lite` uses the cheaper speech model. |
 | `character_voices` | speaker to voice | Voices for characters in dialogue. |
 | `overrides` | any section of `config/default.toml` | Per-book changes to models, chunk length, retries, and so on. |
+
+The old words (`low`/`medium`/`high`, `slow`/`measured`/`normal`/`brisk`, `minimal`/`normal`/`generous`) still work and map to numbers.
 
 Import suggests expressiveness, pace, and pauses from the book itself. `audiobook import --restyle` asks again.
 
@@ -149,20 +195,19 @@ Import suggests expressiveness, pace, and pauses from the book itself. `audioboo
 projects/mybook/
   project.json   style.md
   ingest/        manifest.json, chapters/NNN.json, page images
-  chunks/        prep/ (outputs, review/)   tts/   audio/ (clips, chapter-NNN.wav, book.wav)
-  samples/       chapter-004-30s.wav
+  chunks/        prep/ (outputs, review/)   tts/
+  audio/         clips/, chapter-NNN.mp3 (or .m4a/.wav), book.mp3
+  samples/       chapter-004-30s.mp3
   score/         music.json, sfx-NNN.json (when music or effects are on)
 ```
 
-`projects/` is ignored by git. Importing the same PDF again keeps your edits and does nothing; a different PDF under the same name needs `--force` and deletes the generated files.
-
-The sections below describe the lower-level, project-less commands. They still work and write to `artifacts/` (or to a project with `--project`).
+`projects/` is ignored by git. Importing the same file again keeps your edits and does nothing; a different file under the same name needs `--force` and deletes the generated files. `audiobook projects` lists your projects.
 
 ## Choose a voice
 
 You can skip this section and stay on Schedar.
 
-Prebuilt names, Extended Voice Library ids, and designed `voice_...` ids all work. Pass any of them with `--voice`. A single Capitalized word is checked against the documented prebuilt list, so a typo is rejected before a paid call. Library ids usually contain a hyphen or digit. Designed ids start with `voice_`.
+Prebuilt names, Extended Voice Library ids, and designed `voice_...` ids all work. Use any of them as `narration.voice` in `project.json`, or pass them with `--voice` to the low-level commands. With a local engine the voices are different; see [Run without Google](#run-without-google). A single Capitalized word is checked against the documented prebuilt list, so a typo is rejected before a paid call. Library ids usually contain a hyphen or digit. Designed ids start with `voice_`.
 
 List voices (the catalog returns prebuilt voices and any library or designed voices on your key, plus metadata such as language and gender when the API sends them):
 
@@ -171,12 +216,11 @@ audiobook voices list --language en-US
 audiobook voices list --search narrator --language en-US --gender neutral
 ```
 
-Hear three prebuilt voices on the same minute of text. Schedar is even, Charon is informative, and Sulafat is warm. Use the chapter index you got from `audiobook chapters`.
+Hear three prebuilt voices on the same minute of text. Schedar is even, Charon is informative, and Sulafat is warm. Set `narration.voice` in `project.json`, then sample a chapter. Only the speech is redone, and the sample is overwritten, so copy it aside before trying the next voice.
 
-```bash
-audiobook sample --pdf /path/to/book.pdf --chapter 1 --style "even and clear" --voice Schedar --sample-seconds 60
-audiobook sample --pdf /path/to/book.pdf --chapter 1 --style "even and clear" --voice Charon --sample-seconds 60
-audiobook sample --pdf /path/to/book.pdf --chapter 1 --style "even and clear" --voice Sulafat --sample-seconds 60
+```text
+audiobook generate --project mybook --chapter 1 --sample 60     # with "voice": "Schedar"
+audiobook generate --project mybook --chapter 1 --sample 60     # after changing it to "Charon"
 ```
 
 Create a designed voice from a description. The command calls `POST /v1beta/voices` and prints a `voice_...` id:
@@ -185,13 +229,13 @@ Create a designed voice from a description. The command calls `POST /v1beta/voic
 audiobook voices design --description "A calm adult narrator with an even pace and a warm tone"
 ```
 
-Use that id as `--voice voice_...`, or put it in a style profile under `character_voices.narrator`. You can also design a voice in the AI Studio Voice Design page and copy the same kind of id. Temporary emotion belongs in the style string for a turn, not in the voice description. Describe age, timbre, accent, and baseline pace.
+Use that id as `narration.voice` in `project.json` (or `--voice voice_...` with the low-level commands). You can also design a voice in the AI Studio Voice Design page and copy the same kind of id. Temporary emotion belongs in the style string for a turn, not in the voice description. Describe age, timbre, accent, and baseline pace.
 
-`--lite` switches speech to `gemini-3.8-flash-lite-tts` from the config. Text preparation stays on the text model.
+`"lite": true` in `project.json` (`--lite` on the low-level commands) switches speech to `gemini-3.8-flash-lite-tts` from the config. Text preparation stays on the text model.
 
 ## Write a style profile
 
-Copy an example and edit it:
+In a project the narration style is `projects/<name>/style.md`, written by `import` and yours to edit. For a reusable, structured file, or for the low-level commands, copy an example and edit it:
 
 ```bash
 cp profiles/examples/neutral-narration.yaml my-style.yaml
@@ -199,16 +243,18 @@ cp profiles/examples/neutral-narration.yaml my-style.yaml
 
 `neutral-narration.yaml` keeps ordinary sentences quiet. `playful-philosophical.yaml` allows a little more color and names two invented speakers. Field notes are in [docs/STYLE_PROFILE.md](docs/STYLE_PROFILE.md).
 
-You can skip the file and pass one line. `--style` is either that line or a path ending in `.yaml`, `.yml`, or `.toml`.
+The low-level commands also take one line instead of a file. `--style` is either that line or a path ending in `.yaml`, `.yml`, or `.toml`; `--style-profile` is the same file form. When both are set, the file is the profile and `--style` is extra direction for that run. Nothing is written back to the file.
 
 ```bash
 audiobook sample --pdf /path/to/book.pdf --chapter 1 --style "even, unhurried, almost no vocal tags" --sample-seconds 60
 audiobook sample --pdf /path/to/book.pdf --chapter 1 --style profiles/examples/neutral-narration.yaml --sample-seconds 60
 ```
 
-`--style-profile` is the same file form. When both are set, the file is the profile and `--style` is extra direction for that run. Nothing is written back to the file.
+## Low-level commands (without a project)
 
-## Find the chapter number (low-level commands)
+Everything above is the normal way to work. These older commands take a PDF directly and write to `artifacts/` (or into a project when you pass `--project`). They are handy for one-off experiments and for running a single stage.
+
+### Find the chapter number
 
 ```bash
 audiobook extract --pdf /path/to/book.pdf
@@ -218,7 +264,7 @@ audiobook chunks --pdf /path/to/book.pdf --chapter 1
 
 `audiobook chapters` prints the 1-based index, the title, and the page range. `audiobook chunks` prints the 0-based chunk index, estimated seconds, speakers, and the opening words. Use a chunk index whose speakers are not only the narrator when you want the sample to include dialogue.
 
-## Estimate before you spend
+### Estimate before you spend
 
 ```bash
 audiobook estimate --pdf /path/to/book.pdf --chapter 1 --sample-seconds 60
@@ -229,7 +275,7 @@ audiobook sample --pdf /path/to/book.pdf --chapter 1 --style "even and clear" --
 
 The lines are chunk count, estimated audio minutes, and estimated TTS cost in USD from `config/default.toml`. Prices there are a dated copy of the public Gemini price for `gemini-3.8-flash-tts`. Change them when the price page changes. Text-prep image tokens are not included. `--sample-seconds` and `--max-chunks` limit the estimate to the chunks that would actually be spoken.
 
-## One-minute sample (do this first)
+### One-minute sample
 
 ```bash
 audiobook sample --pdf /path/to/book.pdf --chapter 1 --style "even and clear" --sample-seconds 60
@@ -260,7 +306,7 @@ Play the WAV. Open the Markdown review beside it. Each chunk shows the source te
 
 Sample files are not the chapter cache. A later full chapter still prepares and speaks every chunk, including the ones you already sampled.
 
-## Full chapter
+### Full chapter
 
 ```bash
 audiobook run --pdf /path/to/book.pdf --chapter 1 --style profiles/examples/neutral-narration.yaml
@@ -271,7 +317,7 @@ The chapter WAV is `artifacts/audio/chapter-001.wav` (the number matches the cha
 
 `--max-chunks 5` on `run` (without `--sample-seconds`) caps a chapter run and stores those chunks in the chapter cache. A later `run` of the same chapter continues with the chunks that are not finished yet. Use `--sample-seconds` when you want a listen that must not become part of that cache.
 
-## Where files land
+### Where files land
 
 ```text
 artifacts/ingest/manifest.json
@@ -288,7 +334,7 @@ artifacts/<book>/samples/<chapter>-<timestamp>.wav
 artifacts/<book>/samples/<chapter>-<timestamp>.md
 ```
 
-## Run one stage, or resume
+### Run one stage, or resume
 
 Each stage reads the previous stage's files. A chunk whose prep file already validates is not sent to the text model again. A clip that already plays as 24 kHz mono 16-bit WAV is not synthesized again. Delete that chunk's prep file and its clips when you want them redone.
 
@@ -312,19 +358,19 @@ Install the `tesseract` binary from your OS packages, set `ingest.ocr_enabled = 
 
 ## Troubleshooting
 
-**Chapter breaks look wrong.** Run `audiobook chapters` and compare titles with the pages in the PDF. The extractor uses the PDF outline when there is one, otherwise headings. Front matter is its own chapter when pages come before the first chapter heading. Details are in [docs/NOTES.md](docs/NOTES.md).
+**Chapter breaks look wrong.** Run `audiobook chapters --project mybook` and compare titles with the pages in the PDF. The extractor uses the PDF outline when there is one, otherwise headings. Front matter is its own chapter when pages come before the first chapter heading. Details are in [docs/NOTES.md](docs/NOTES.md).
 
 **Scanned or blank pages.** You will see a warning and a placeholder line. Turn on OCR as above, or skip that chapter.
 
-**Prep failed for chunk …** Read the errors. The usual causes are an inline tag that is not on the allowlist, a style string that quotes the transcript, raw math left in the spoken text, or a figure or note the model dropped. Tighten the style profile, delete that chunk's file under `artifacts/prep/outputs/chunks/`, and run prep again. Finished chunks stay finished.
+**Prep failed for chunk …** Read the errors. The usual causes are an inline tag that is not on the allowlist, a style string that quotes the transcript, raw math left in the spoken text, or a figure or note the model dropped. Tighten the style profile, delete that chunk's file under `projects/<name>/prep/outputs/chunks/`, and run `prepare` again. Finished chunks stay finished.
 
-**Rate limits.** The client already backs off on 429 and 5xx. If it still stops, lower `prep.concurrency` and `tts.concurrency` in the config and run the same command again. Finished chunks and clips are skipped.
+**Rate limits.** The client already backs off on 429 and 5xx. If it still stops, lower `prep.concurrency` and `tts.concurrency` (in `overrides` in `project.json`, or `config/default.toml`) and run the same command again. Finished chunks and clips are skipped.
 
-**The voice sounds robotic.** Try another prebuilt voice (`Charon`, `Sulafat`, `Schedar`) with the 60-second sample. Add a short `--style` such as `warm, unhurried, a little smile in the voice`. Do not pile tags onto every sentence.
+**The voice sounds robotic.** Try another prebuilt voice (`Charon`, `Sulafat`, `Schedar`) with a 60-second sample. Add a short line to `style.md` such as `warm, unhurried, a little smile in the voice`. Do not pile tags onto every sentence.
 
-**The voice sounds over-acted.** Put `Prefer an empty style on ordinary sentences` in the profile's `literary_traits`. Keep `--style` to a few words. Empty style is what the speech model expects for a plain sentence. Design a calmer `voice_...` id if the prebuilt voice itself is too bright.
+**The voice sounds over-acted.** Put `Prefer an empty style on ordinary sentences` in `style.md`, or lower `expressiveness`. Keep the style notes short. Empty style is what the speech model expects for a plain sentence. Design a calmer `voice_...` id if the prebuilt voice itself is too bright.
 
-**Dialogue is all one voice.** Set `character_voices` in the profile for the speaker labels `audiobook chunks` prints, or pass a profile that already names them. Only two prebuilt voices can share one request. A library id or a `voice_...` id is spoken one turn at a time.
+**Dialogue is all one voice.** Set `character_voices` in `project.json` for the speaker labels `audiobook chunks --project mybook --chapter N` prints. Only two prebuilt voices can share one request. A library id or a `voice_...` id is spoken one turn at a time.
 
 ## Tests
 

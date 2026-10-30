@@ -48,8 +48,10 @@ def add_parsers(sub) -> None:
 
     models = sub.add_parser("models", help="Install local models")
     models_sub = models.add_subparsers(dest="models_command", required=True)
-    install = models_sub.add_parser("install", help="Install Stable Audio 3 (music and sound effects, about 8 GB)")
-    install.add_argument("name", choices=["sa3"])
+    install = models_sub.add_parser(
+        "install", help="Install Stable Audio 3 (music and sound effects, about 8 GB) or Orpheus (local speech, about 7 GB)"
+    )
+    install.add_argument("name", choices=["sa3", "orpheus"])
     install.add_argument("--bundles", default="sm-music,sm-sfx,medium")
 
 
@@ -151,6 +153,14 @@ def run_library(args, config: AppConfig, ui: Ui, library: Library | None = None)
 
 
 def run_models(args, config: AppConfig, ui: Ui) -> int:
+    if args.name == "orpheus":
+        from .speech_local import install_orpheus
+
+        ui.banner("📦", "Installing Orpheus", "about 7 GB of model files; needs Apple Silicon")
+        root = install_orpheus(config.tts.orpheus)
+        ui.ok(f"installed at {root}")
+        ui.kv("use it", 'set "overrides": {"tts": {"provider": "orpheus"}} in project.json')
+        return 0
     ui.banner("📦", "Installing Stable Audio 3", "about 8 GB of model files")
     root = install_sa3(config.sound, bundles=args.bundles)
     ui.ok(f"installed at {root}")

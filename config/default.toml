@@ -113,8 +113,26 @@ style_examples = [
 inline_data = "inlineData"
 mime_type = "mimeType"
 
+[text]
+# Which language model reads the book: prep, style detection, music and sound planning.
+#   provider = "gemini"  uses GEMINI_API_KEY and [prep] model.
+#   provider = "openai"  uses any OpenAI-compatible server, for example a local Ollama:
+#       provider = "openai"
+#       model = "qwen3:14b"
+#       base_url = "http://localhost:11434/v1"
+provider = "gemini"
+model = ""
+base_url = "http://localhost:11434/v1"
+api_key_env = ""
+json_mode = "json_object"
+timeout_seconds = 600.0
+vision = false
+
 [tts]
-# Default API surface. "interactions" is the other supported builder.
+# Which engine speaks: "gemini" (GEMINI_API_KEY), "orpheus" (runs locally; see
+# `audiobook models install orpheus`) or "http" (an OpenAI-style /v1/audio/speech server).
+provider = "gemini"
+# Gemini API surface. "interactions" is the other supported builder.
 api = "generate_content"
 model = "gemini-3.8-flash-tts"
 lite_model = "gemini-3.8-flash-lite-tts"
@@ -172,3 +190,20 @@ seconds_per_tts_request = 8.0
 seconds_per_prep_request = 6.0
 # Rough text-token stand-in so estimate can run before a live call.
 tokens_per_word = 1.3
+
+[tts.orpheus]
+model = "mlx-community/orpheus-3b-0.1-ft-bf16"
+default_voice = "tara"
+temperature = 0.6
+top_p = 0.8
+repetition_penalty = 1.3
+max_tokens = 1200
+pause_ms = 350
+
+[tts.http]
+base_url = "http://localhost:5005/v1"
+model = "orpheus"
+default_voice = "tara"
+api_key_env = ""
+response_format = "wav"
+pause_ms = 350

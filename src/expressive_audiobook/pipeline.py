@@ -262,6 +262,8 @@ def format_estimate(chunks: list[Chunk], config: AppConfig) -> str:
         tts_input_price_per_million=config.cost.tts_input_price_per_million,
         audio_tokens_per_second=config.cost.audio_tokens_per_second,
     )
+    if config.tts.provider != "gemini":
+        return f"chunks: {len(chunks)}\naudio_minutes: {seconds / 60.0:.2f}\nestimated_cost_usd: 0.0000 (speech runs on {config.tts.provider})\n"
     return (
         f"chunks: {len(chunks)}\n"
         f"audio_minutes: {seconds / 60.0:.2f}\n"

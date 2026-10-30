@@ -261,6 +261,8 @@ def plan_tts_requests(turns: list[dict], profile: StyleProfile, config: AppConfi
     request. Rationale and description fields are not copied.
     """
     resolved = [_resolve(turn, profile, config.tts) for turn in turns]
+    if config.tts.provider != "gemini":
+        return [_build_engine_request([item], config) for item in resolved]
     groups: list[list[ResolvedTurn]] = []
     index = 0
     while index < len(resolved):
@@ -351,7 +353,7 @@ def _resolve(turn: dict, profile: StyleProfile, config: TtsConfig) -> ResolvedTu
         style=str(turn.get("style") or ""),
         speaker=speaker,
         voice=mapping.voice,
-        voice_type=_classify(mapping),
+        voice_type=_classify(mapping, config.provider),
     )
 
 
@@ -367,7 +369,9 @@ def _voice_for(speaker: str, profile: StyleProfile, config: TtsConfig) -> VoiceM
     return VoiceMapping(voice=config.default_voice, voice_type=config.default_voice_type)
 
 
-def _classify(mapping: VoiceMapping) -> str:
+def _classify(mapping: VoiceMapping, provider: str = "gemini") -> str:
+    if provider != "gemini":
+        return "engine"  # the engine decides which of its voices to use
     return classify_voice_name(mapping.voice, mapping.voice_type)
 
 
@@ -385,6 +389,34 @@ def _voice_query(filters: dict) -> dict[str, str | int]:
     if filters.get("voice_type"):
         params["type"] = filters["voice_type"]
     return params
+
+
+def _build_engine_request(group: list[ResolvedTurn], config: AppConfig) -> TtsRequest:
+    """One turn for an engine that speaks one voice at a time. The payload is what makes a clip's cache stamp."""
+    from dataclasses import asdict
+
+    item = group[0]
+    settings = asdict(config.tts.orpheus if config.tts.provider == "orpheus" else config.tts.http)
+    settings.pop("dir", None)
+    speakers = [{"speaker": item.speaker, "voice": item.voice, "voice_type": item.voice_type}]
+    turns = [{"text": item.text, "style": item.style, "speaker": item.speaker}]
+    payload = {
+        "engine": config.tts.provider,
+        "model": config.tts.model,
+        "voice": item.voice,
+        "speaker": item.speaker,
+        "text": item.text,
+        "settings": settings,
+    }
+    return TtsRequest(
+        api=config.tts.provider,
+        model=config.tts.model,
+        audio_mime="audio/l16",
+        sample_rate=config.tts.sample_rate,
+        speakers=speakers,
+        turns=turns,
+        payload=payload,
+    )
 
 
 def _build_request(group: list[ResolvedTurn], config: AppConfig) -> TtsRequest:

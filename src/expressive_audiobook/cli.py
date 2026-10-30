@@ -10,7 +10,8 @@ from pathlib import Path
 
 from . import __version__
 from .audio import AudioFormatError
-from .config import StyleProfile, VoiceMapping, gemini_api_key, load_style_profile
+from .config import StyleProfile, VoiceMapping, load_style_profile
+from .engines import make_text_client, make_tts_client
 from .pipeline import (
     chapter_rows,
     format_estimate,
@@ -311,12 +312,13 @@ def _project_run(args, project, config, ui, prep_client, tts_client) -> int:
         raise ProjectError("Use either --chapter or --all, not both")
     if args.sample is not None and args.sample <= 0:
         raise ProjectError("--sample must be a number of seconds greater than 0")
-    prep = None if args.dry_run else _prep_client(config, prep_client, required=True)
+    engines = project.config(config)  # the project's overrides decide which models are used
+    prep = None if args.dry_run else _prep_client(engines, prep_client, required=True)
     if args.command == "prepare":
         prepare_book(project, config, prep, ui=ui, chapters=chapters, sample=args.sample,
                      force=args.force, dry_run=args.dry_run)
         return 0
-    tts = None if args.dry_run else _tts_client(config, tts_client, required=True)
+    tts = None if args.dry_run else _tts_client(engines, tts_client, required=True)
     generate_book(project, config, prep, tts, ui=ui, chapters=chapters, sample=args.sample,
                   force=args.force, dry_run=args.dry_run)
     return 0
@@ -325,7 +327,7 @@ def _project_run(args, project, config, ui, prep_client, tts_client) -> int:
 def _optional_prep_client(config, prep_client):
     if prep_client is not None:
         return prep_client
-    return GeminiTextPrepClient(gemini_api_key(), config) if gemini_api_key() else None
+    return make_text_client(config)
 
 
 def _run(config, args, *, prep_client, tts_client) -> int:
@@ -412,17 +414,13 @@ def _runtime(config, args):
 def _prep_client(config, prep_client, required: bool = False):
     if prep_client is not None:
         return prep_client
-    if required and not gemini_api_key():
-        raise ProjectError("GEMINI_API_KEY is not set. Put it in .env or the environment (see .env.example).")
-    return GeminiTextPrepClient(gemini_api_key(), config)
+    return make_text_client(config, required=required) or GeminiTextPrepClient(None, config)
 
 
 def _tts_client(config, tts_client, required: bool = False):
     if tts_client is not None:
         return tts_client
-    if required and not gemini_api_key():
-        raise ProjectError("GEMINI_API_KEY is not set. Put it in .env or the environment (see .env.example).")
-    return GeminiTtsClient(gemini_api_key(), config)
+    return make_tts_client(config, required=required)
 
 
 def _add_chapter(parser: argparse.ArgumentParser, *, required: bool) -> None:

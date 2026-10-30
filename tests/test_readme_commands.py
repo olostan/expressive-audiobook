@@ -81,8 +81,6 @@ def test_readme_audiobook_commands_run(tmp_path: Path):
         code = main(["--config", str(config), *argv[1:]], prep_client=prep, tts_client=speech)
         assert code == 0, line
     assert "Schedar" in speech.seen
-    assert "Charon" in speech.seen
-    assert "Sulafat" in speech.seen
     samples = list((tmp_path / "artifacts").glob("owned-book/samples/*.wav"))
     assert samples
     assert not any(path.name.startswith("chapter-") for path in samples)

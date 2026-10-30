@@ -216,6 +216,7 @@ def render_prompt(
         "allowed_tags": ", ".join(config.allowed_tags),
         "backchannels": ", ".join(config.backchannels),
         "style_examples": ", ".join(f'"{item}"' for item in config.style_examples),
+        "engine_notes": config.engine_notes,
         "style_profile": profile.render(),
         "delivery_guidance": delivery_guidance(config.expressiveness, config.pace, config.pause_density),
         "prompt_version": config.prompt_version,

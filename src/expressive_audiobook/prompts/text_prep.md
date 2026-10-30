@@ -9,7 +9,7 @@ That model treats `text` as a strict verbatim transcript. It speaks every charac
 
 Sustained delivery (emotion, pace, tone, prosody, pitch) must not appear inside `text`. Put it in `style`. That string is copied to `speech_metadata.style`. `style` is free-form natural language. Empty is allowed and is the right value for ordinary sentences. There is no official style catalog. The examples below are inspiration, not a menu. Compose your own when the passage needs a shade that the examples do not name.
 
-Write the transcript in `{{language}}`.
+Write the transcript in `{{language}}`.{{engine_notes}}
 
 ## Infer the emotion
 
