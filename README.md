@@ -45,6 +45,10 @@ audiobook doctor
 
 `audiobook doctor` checks Python, which API keys you need for the engines you chose (and which you do not), whether Ollama or an Orpheus server is reachable and has your model, whether Orpheus is installed, and the optional tools (ffmpeg, numpy, Tesseract, Stable Audio). Each problem comes with the command that fixes it, and the exit code is 1 when something required is missing. Keys are never printed. Add `--online` to confirm a Gemini key is accepted (one free request), and `--project NAME` to check against a project's own settings.
 
+## Hear an example
+
+[`examples/pip-and-the-lantern`](examples/pip-and-the-lantern) holds a short children's story, the [narrated MP3](examples/pip-and-the-lantern/pip-and-the-lantern.mp3) (about four minutes, with background music and sound effects), the style `import` wrote for it, and the settings used. Open the folder to see how to make the same thing from the source text.
+
 ## Quick start: import, tune, prepare, generate
 
 ```text

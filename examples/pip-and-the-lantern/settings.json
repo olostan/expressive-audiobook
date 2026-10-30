@@ -1,0 +1,10 @@
+{
+  "language": "en",
+  "narration": { "voice": "Schedar", "expressiveness": 0.75, "pace": 0.35, "pause_density": 0.65 },
+  "audio": { "format": "mp3" },
+  "soundscape": {
+    "music": { "enabled": true, "level": 0.4 },
+    "sfx": { "enabled": true, "intensity": 0.5 },
+    "audience": "kids"
+  }
+}
