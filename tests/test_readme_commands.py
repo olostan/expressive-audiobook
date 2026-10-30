@@ -61,7 +61,8 @@ def _commands(readme: str) -> list[str]:
     return commands
 
 
-def test_readme_audiobook_commands_run(tmp_path: Path):
+def test_readme_audiobook_commands_run(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")  # `audiobook doctor` needs a key for the default engines
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     commands = _commands(readme)
     assert len(commands) >= 15
