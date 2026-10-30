@@ -3,10 +3,10 @@
 import json
 from pathlib import Path
 
-from pdf_expressive_audiobook.cli import main
-from pdf_expressive_audiobook.config import load_config
-from pdf_expressive_audiobook.prep import flat_delivery_errors
-from pdf_expressive_audiobook.project import Project, load_style_md
+from expressive_audiobook.cli import main
+from expressive_audiobook.config import load_config
+from expressive_audiobook.prep import flat_delivery_errors
+from expressive_audiobook.project import Project, load_style_md
 from pdf_factory import build_outline_pdf
 from test_live_pipeline import _valid_from_request
 
@@ -169,7 +169,7 @@ def test_flat_delivery_is_flagged_only_for_long_untagged_text():
 
 
 def test_long_pause_is_rewritten_and_no_longer_allowed():
-    from pdf_expressive_audiobook.tts import speakable_text
+    from expressive_audiobook.tts import speakable_text
 
     config = load_config(ROOT / "config" / "default.toml")
     assert "<long pause>" not in config.prep.allowed_tags
@@ -177,7 +177,7 @@ def test_long_pause_is_rewritten_and_no_longer_allowed():
 
 
 def test_pause_tags_at_the_edges_of_a_turn_are_dropped():
-    from pdf_expressive_audiobook.tts import speakable_text
+    from expressive_audiobook.tts import speakable_text
 
     assert speakable_text("They danced. <short pause> <short pause>") == "They danced."
     assert speakable_text("<short pause> Once upon a time. <short pause> Then, <short pause> rain.") == (
@@ -187,7 +187,7 @@ def test_pause_tags_at_the_edges_of_a_turn_are_dropped():
 
 
 def _chunk(text, speakers=("Achilles",)):
-    from pdf_expressive_audiobook.models import Chunk
+    from expressive_audiobook.models import Chunk
 
     return Chunk(
         id="c001-0000", chapter_id="ch-001", chapter_index=1, chapter_title="t", order=0, kind="dialogue",
@@ -205,7 +205,7 @@ def _output(text, speaker="Achilles"):
 
 
 def test_validator_rejects_speaker_labels_and_typographic_art():
-    from pdf_expressive_audiobook.prep import validate_prep_output
+    from expressive_audiobook.prep import validate_prep_output
 
     config = load_config(ROOT / "config" / "default.toml")
     chunk = _chunk("Hello there.")
@@ -216,8 +216,8 @@ def test_validator_rejects_speaker_labels_and_typographic_art():
 
 
 def test_chunks_keep_who_says_what():
-    from pdf_expressive_audiobook.chunking import chunk_chapter
-    from pdf_expressive_audiobook.models import Block, Chapter
+    from expressive_audiobook.chunking import chunk_chapter
+    from expressive_audiobook.models import Block, Chapter
 
     def block(n, speaker, text):
         return Block(id=f"b-{n}", kind="dialogue_turn" if speaker else "paragraph", text=text,
@@ -231,7 +231,7 @@ def test_chunks_keep_who_says_what():
 
 
 def test_character_voices_are_distinct_valid_and_skip_the_narrator():
-    from pdf_expressive_audiobook.style_detect import assign_character_voices
+    from expressive_audiobook.style_detect import assign_character_voices
 
     voices = assign_character_voices("Schedar", ["A", "B", "C"], {"A": "Puck", "B": "Puck", "C": "Schedar", "D": "x"})
     assert voices["A"] == "Puck"
@@ -283,8 +283,8 @@ def test_cache_follows_settings_that_matter(tmp_path):
 
 
 def test_rejected_retry_request_falls_back_to_the_plain_request():
-    from pdf_expressive_audiobook.prep import prepare_chunk_output
-    from pdf_expressive_audiobook.config import StyleProfile
+    from expressive_audiobook.prep import prepare_chunk_output
+    from expressive_audiobook.config import StyleProfile
 
     class Rejected(Exception):
         code = 400
@@ -327,7 +327,7 @@ def test_api_errors_print_a_short_message_not_a_traceback(tmp_path, capsys):
 def test_tuning_levels_are_numbers_with_old_words_as_aliases():
     import pytest
 
-    from pdf_expressive_audiobook.tuning import chapter_tail_ms, delivery_guidance, gap_ms, level
+    from expressive_audiobook.tuning import chapter_tail_ms, delivery_guidance, gap_ms, level
 
     assert level("pace", 0.3) == 0.3 and level("pace", "slow") == 0.1 and level("expressiveness", "high") == 0.85
     for bad in ("normal", 1.5, -0.1, None, True):
@@ -388,7 +388,7 @@ def test_keep_wav_true_keeps_both_and_changed_inputs_rebuild(tmp_path):
 
 
 def test_missing_ffmpeg_keeps_the_wav_and_says_so(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr("pdf_expressive_audiobook.export.shutil.which", lambda name: None)
+    monkeypatch.setattr("expressive_audiobook.export.shutil.which", lambda name: None)
     prep, speech = Prep(), Speech()
     root = _import(tmp_path, prep)
     assert _run(tmp_path, "generate", "--chapter", "1", prep=prep, speech=speech) == 0

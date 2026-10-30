@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pdf_expressive_audiobook.cli import main
+from expressive_audiobook.cli import main
 from pdf_factory import build_outline_pdf
 from test_live_pipeline import _valid_from_request, _write_config
 
@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class Prep:
     def generate(self, request):
-        from pdf_expressive_audiobook.config import load_config
+        from expressive_audiobook.config import load_config
 
         return _valid_from_request(request, load_config(ROOT / "config" / "default.toml"))
 

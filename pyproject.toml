@@ -1,7 +1,7 @@
 [project]
-name = "pdf-expressive-audiobook"
+name = "expressive-audiobook"
 version = "0.1.0"
-description = "Turn a PDF you own into a multi-chapter expressive audiobook."
+description = "Turn a book you own (PDF, Markdown or text) into a multi-chapter expressive audiobook."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -22,7 +22,7 @@ sound = ["numpy>=1.26", "huggingface_hub>=0.30"]
 dev = ["pytest>=8"]
 
 [project.scripts]
-audiobook = "pdf_expressive_audiobook.cli:main"
+audiobook = "expressive_audiobook.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -32,7 +32,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-pdf_expressive_audiobook = ["prompts/*.md", "schemas/*.json"]
+expressive_audiobook = ["prompts/*.md", "schemas/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

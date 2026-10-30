@@ -5,11 +5,11 @@ from pathlib import Path
 
 import numpy as np
 
-from pdf_expressive_audiobook import score
-from pdf_expressive_audiobook.cli import main
-from pdf_expressive_audiobook.config import load_config
-from pdf_expressive_audiobook.library import Library
-from pdf_expressive_audiobook.mixer import decode, write_wav
+from expressive_audiobook import score
+from expressive_audiobook.cli import main
+from expressive_audiobook.config import load_config
+from expressive_audiobook.library import Library
+from expressive_audiobook.mixer import decode, write_wav
 from test_live_pipeline import _valid_from_request
 from test_project_workflow import STYLE
 
@@ -195,20 +195,20 @@ def test_rejected_and_unapproved_sounds_are_not_mixed(tmp_path, monkeypatch):
 def _ui(*answers):
     import io
 
-    from pdf_expressive_audiobook.ui import Ui
+    from expressive_audiobook.ui import Ui
 
     queue = list(answers)
     return Ui(io.StringIO(), interactive=True, input_fn=lambda prompt: queue.pop(0))
 
 
 def _project(tmp_path):
-    from pdf_expressive_audiobook.project import Project
+    from expressive_audiobook.project import Project
 
     return Project.create(tmp_path, "p", tmp_path / "x.md") if (tmp_path / "x.md").write_text("x") else None
 
 
 def test_interactive_import_asks_and_non_interactive_stays_off(tmp_path):
-    from pdf_expressive_audiobook.workflow import _choose_soundscape
+    from expressive_audiobook.workflow import _choose_soundscape
 
     detected = {"audience": "kids", "soundscape": {"music": {"recommended": True, "style": "soft piano", "reason": "a bedtime story"},
                                                     "sfx": {"recommended": True, "reason": "has doors and rain"}}}
@@ -220,7 +220,7 @@ def test_interactive_import_asks_and_non_interactive_stays_off(tmp_path):
     assert scape["sfx"] == {"enabled": True, "intensity": 0.6}
 
     quiet = _project(tmp_path / "q") if (tmp_path / "q").mkdir() is None else None
-    from pdf_expressive_audiobook.ui import Ui
+    from expressive_audiobook.ui import Ui
     import io
 
     _choose_soundscape(Ui(io.StringIO(), interactive=False), quiet, detected, music=None, sfx=None, audience=None)

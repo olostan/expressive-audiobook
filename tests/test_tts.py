@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from pdf_expressive_audiobook.config import StyleProfile, VoiceMapping, load_config
-from pdf_expressive_audiobook.models import to_jsonable
-from pdf_expressive_audiobook.tts import (
+from expressive_audiobook.config import StyleProfile, VoiceMapping, load_config
+from expressive_audiobook.models import to_jsonable
+from expressive_audiobook.tts import (
     GeminiTtsClient,
     estimate_latency,
     estimate_tts_cost,

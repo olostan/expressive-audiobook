@@ -8,19 +8,19 @@ from pathlib import Path
 
 import pytest
 
-from pdf_expressive_audiobook.audio import parse_wav
-from pdf_expressive_audiobook.cli import main
-from pdf_expressive_audiobook.config import AppConfig, StyleProfile, load_config
-from pdf_expressive_audiobook.gemini_api import design_voice_sdk, generate_prep_sdk
-from pdf_expressive_audiobook.models import Chunk, to_jsonable
-from pdf_expressive_audiobook.pipeline import (
+from expressive_audiobook.audio import parse_wav
+from expressive_audiobook.cli import main
+from expressive_audiobook.config import AppConfig, StyleProfile, load_config
+from expressive_audiobook.gemini_api import design_voice_sdk, generate_prep_sdk
+from expressive_audiobook.models import Chunk, to_jsonable
+from expressive_audiobook.pipeline import (
     format_estimate,
     run_prep_model,
     run_sample,
     select_chunks,
 )
-from pdf_expressive_audiobook.prep import ChunkPrepFailed, prepare_chunk_output
-from pdf_expressive_audiobook.tts import (
+from expressive_audiobook.prep import ChunkPrepFailed, prepare_chunk_output
+from expressive_audiobook.tts import (
     PREBUILT_VOICES,
     GeminiTtsClient,
     classify_voice_name,
@@ -276,7 +276,7 @@ def _audio_response(blob: bytes, mime: str = "audio/l16") -> bytes:
 
 
 def _one_request(config, voice="Schedar", voice_type="prebuilt"):
-    from pdf_expressive_audiobook.config import VoiceMapping
+    from expressive_audiobook.config import VoiceMapping
 
     profile = StyleProfile(character_voices={"narrator": VoiceMapping(voice, voice_type)})
     return plan_tts_requests(
@@ -333,8 +333,8 @@ def test_synthesize_posts_design_and_library_ids():
 
 
 def test_existing_clip_is_not_synthesized_again(tmp_path: Path):
-    from pdf_expressive_audiobook.audio import PcmClip, write_wav
-    from pdf_expressive_audiobook.pipeline import run_tts_model
+    from expressive_audiobook.audio import PcmClip, write_wav
+    from expressive_audiobook.pipeline import run_tts_model
 
     config = _config(tmp_path)
     chunk = _chunk()

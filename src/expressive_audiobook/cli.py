@@ -36,7 +36,7 @@ from .workflow import AUDIENCES, generate_book, import_book, parse_chapters, pre
 def main(argv: list[str] | None = None, *, prep_client=None, tts_client=None) -> int:
     parser = argparse.ArgumentParser(
         prog="audiobook",
-        description="Turn a PDF you own into a multi-chapter expressive audiobook.",
+        description="Turn a book you own (PDF, Markdown or text) into a multi-chapter expressive audiobook.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--config", help="Path to a TOML config file")

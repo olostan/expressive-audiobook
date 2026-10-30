@@ -47,7 +47,7 @@ tts_output    ≈ audio_tokens / 1e6 * tts_output_price_per_million
 tts_input     ≈ tts_input_tokens / 1e6 * tts_input_price_per_million
 ```
 
-`estimate_tts_cost` and `estimate_latency` in `pdf_expressive_audiobook.tts` implement that. Defaults in config, copied from the Gemini pricing page on 2026-10-24 for `gemini-3.8-flash-tts` standard tier through 2026-12-31:
+`estimate_tts_cost` and `estimate_latency` in `expressive_audiobook.tts` implement that. Defaults in config, copied from the Gemini pricing page on 2026-10-24 for `gemini-3.8-flash-tts` standard tier through 2026-12-31:
 
 - 25 audio tokens per second
 - $0.50 per 1M text input tokens

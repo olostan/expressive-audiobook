@@ -1,7 +1,7 @@
-from pdf_expressive_audiobook.chunking import chunk_chapter
-from pdf_expressive_audiobook.config import ChunkingConfig
-from pdf_expressive_audiobook.models import Block, Chapter, LinkedElement
-from pdf_expressive_audiobook.textutil import split_sentences
+from expressive_audiobook.chunking import chunk_chapter
+from expressive_audiobook.config import ChunkingConfig
+from expressive_audiobook.models import Block, Chapter, LinkedElement
+from expressive_audiobook.textutil import split_sentences
 
 
 def _config() -> ChunkingConfig:

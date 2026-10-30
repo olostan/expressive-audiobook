@@ -3,8 +3,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from pdf_expressive_audiobook.config import IngestConfig
-from pdf_expressive_audiobook.ingest import extract_pdf, load_chapter
+from expressive_audiobook.config import IngestConfig
+from expressive_audiobook.ingest import extract_pdf, load_chapter
 from pdf_factory import build_heuristic_pdf, build_outline_pdf, build_toc_pdf
 
 

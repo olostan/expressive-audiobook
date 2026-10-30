@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from pdf_expressive_audiobook.config import SoundConfig
-from pdf_expressive_audiobook.mixer import (
+from expressive_audiobook.config import SoundConfig
+from expressive_audiobook.mixer import (
     MixPlan,
     Spot,
     build_bed,

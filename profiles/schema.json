@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/olostan/pdf-expressive-audiobook/profiles/schema.json",
+  "$id": "https://github.com/olostan/expressive-audiobook/profiles/schema.json",
   "title": "Style profile",
   "description": "Injectable literary and voice direction for the text-prep stage. The pipeline does not embed any particular book.",
   "type": "object",

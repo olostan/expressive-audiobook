@@ -2,11 +2,11 @@
 
 import pytest
 
-from pdf_expressive_audiobook.audio import load_pcm
-from pdf_expressive_audiobook.config import StyleProfile, VoiceMapping, gemini_api_key, load_config
-from pdf_expressive_audiobook.models import Chunk
-from pdf_expressive_audiobook.prep import GeminiTextPrepClient, prepare_chunk_output
-from pdf_expressive_audiobook.tts import GeminiTtsClient, plan_tts_requests
+from expressive_audiobook.audio import load_pcm
+from expressive_audiobook.config import StyleProfile, VoiceMapping, gemini_api_key, load_config
+from expressive_audiobook.models import Chunk
+from expressive_audiobook.prep import GeminiTextPrepClient, prepare_chunk_output
+from expressive_audiobook.tts import GeminiTtsClient, plan_tts_requests
 
 pytestmark = pytest.mark.live
 

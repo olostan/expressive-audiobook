@@ -1,12 +1,12 @@
 import json
 from pathlib import Path
 
-from pdf_expressive_audiobook.chunking import load_chapter_jsonl
-from pdf_expressive_audiobook.cli import main
-from pdf_expressive_audiobook.config import load_config
-from pdf_expressive_audiobook.models import Chunk
-from pdf_expressive_audiobook.pipeline import run_chunk, run_extract
-from pdf_expressive_audiobook.review import render_review_markdown
+from expressive_audiobook.chunking import load_chapter_jsonl
+from expressive_audiobook.cli import main
+from expressive_audiobook.config import load_config
+from expressive_audiobook.models import Chunk
+from expressive_audiobook.pipeline import run_chunk, run_extract
+from expressive_audiobook.review import render_review_markdown
 from pdf_factory import build_outline_pdf
 
 ROOT = Path(__file__).resolve().parents[1]

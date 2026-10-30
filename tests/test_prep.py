@@ -4,9 +4,9 @@ from pathlib import Path
 
 from PIL import Image
 
-from pdf_expressive_audiobook.config import load_config, load_style_profile
-from pdf_expressive_audiobook.models import AssociatedRef, Chunk
-from pdf_expressive_audiobook.prep import (
+from expressive_audiobook.config import load_config, load_style_profile
+from expressive_audiobook.models import AssociatedRef, Chunk
+from expressive_audiobook.prep import (
     build_prep_request,
     downscale_png,
     render_prompt,

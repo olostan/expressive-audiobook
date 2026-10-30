@@ -1,4 +1,4 @@
-from pdf_expressive_audiobook.textutil import (
+from expressive_audiobook.textutil import (
     join_hyphenated_lines,
     max_words_under,
     normalize_text,

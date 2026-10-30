@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from pdf_expressive_audiobook.chunking import chunk_chapter
-from pdf_expressive_audiobook.cli import main
-from pdf_expressive_audiobook.config import IngestConfig
-from pdf_expressive_audiobook.ingest import load_chapter, load_manifest
-from pdf_expressive_audiobook.ingest_text import extract_text, is_text_source
+from expressive_audiobook.chunking import chunk_chapter
+from expressive_audiobook.cli import main
+from expressive_audiobook.config import IngestConfig
+from expressive_audiobook.ingest import load_chapter, load_manifest
+from expressive_audiobook.ingest_text import extract_text, is_text_source
 
 SENTENCES = "The fox walked slowly along the river. It was a quiet morning and nobody was awake. "
 

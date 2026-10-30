@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pdf_expressive_audiobook.audio import (
+from expressive_audiobook.audio import (
     AudioFormatError,
     PcmClip,
     assemble_clips,

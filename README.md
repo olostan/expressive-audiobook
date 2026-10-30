@@ -1,6 +1,6 @@
-# pdf-expressive-audiobook
+# expressive-audiobook
 
-Turn a PDF, Markdown or text file you own into a spoken chapter. You pick the PDF and the delivery. A style profile (or one line of direction) is the only place literary judgment lives: pace, vocal tags, character voices, and how diagrams and formulas should be spoken.
+Turn a PDF, Markdown or text file you own into a spoken chapter. You pick the book and the delivery. A style profile (or one line of direction) is the only place literary judgment lives: pace, vocal tags, character voices, and how diagrams and formulas should be spoken.
 
 Work happens in a **project**: one folder per book under `projects/<name>/` that holds the extracted chapters, your settings, the narration style, and every generated file. Import once, tune, then generate as often as you like. Every step is resumable.
 
@@ -21,8 +21,8 @@ Optional:
 ## Install
 
 ```bash
-git clone https://github.com/olostan/pdf-expressive-audiobook.git
-cd pdf-expressive-audiobook
+git clone https://github.com/olostan/expressive-audiobook.git
+cd expressive-audiobook
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
