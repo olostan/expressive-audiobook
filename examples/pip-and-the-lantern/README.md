@@ -2,6 +2,8 @@
 
 A short bedtime story (two chapters, about four minutes) made with expressive-audiobook, with background music and sound effects.
 
+▶️ [Listen to audio sample (MP3)](https://github.com/olostan/expressive-audiobook/raw/main/examples/pip-and-the-lantern/pip-and-the-lantern.mp3)
+
 | File | What it is |
 | --- | --- |
 | [pip-and-the-lantern.mp3](pip-and-the-lantern.mp3) | The result: the whole story, narrated, with music and effects |

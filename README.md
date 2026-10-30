@@ -57,6 +57,8 @@ audiobook doctor
 
 ## Hear an example
 
+▶️ [Listen to audio sample (MP3)](https://github.com/olostan/expressive-audiobook/raw/main/examples/pip-and-the-lantern/pip-and-the-lantern.mp3)
+
 [`examples/pip-and-the-lantern`](examples/pip-and-the-lantern) holds a short children's story, the [narrated MP3](examples/pip-and-the-lantern/pip-and-the-lantern.mp3) (about four minutes, with background music and sound effects), the style `import` wrote for it, and the settings used. Open the folder to see how to make the same thing from the source text.
 
 ## Quick start: import, tune, prepare, generate
