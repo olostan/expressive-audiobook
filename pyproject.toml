@@ -1,6 +1,6 @@
 [project]
 name = "expressive-audiobook"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Turn a book you own (PDF, Markdown or text) into a multi-chapter expressive audiobook."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -27,6 +27,9 @@ audiobook = "expressive_audiobook.cli:main"
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = { attr = "expressive_audiobook.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]

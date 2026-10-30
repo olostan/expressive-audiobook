@@ -1,0 +1,107 @@
+name: Release
+
+# A release is made by pushing a version tag such as v0.2.0 (see docs/RELEASING.md).
+# Pushes to main only run CI; they never create a release.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+  workflow_dispatch: # builds and checks only; nothing is published
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Check and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: The tag must match the package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(python -c "import re,pathlib; print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('src/expressive_audiobook/__init__.py').read_text()).group(1))")
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match __version__ ${version}. Bump it in src/expressive_audiobook/__init__.py, commit, and tag again."
+            exit 1
+          fi
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: pip install -e ".[dev,sound]" build twine
+      - name: Tests (no API calls)
+        run: pytest -q
+      - run: python -m build
+      - run: twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error
+
+  github-release:
+    name: GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          flags="--generate-notes --verify-tag --title ${GITHUB_REF_NAME#v}"
+          case "${GITHUB_REF_NAME}" in *-*) flags="$flags --prerelease";; esac
+          gh release create "${GITHUB_REF_NAME}" dist/* $flags
+
+  homebrew:
+    name: Update the Homebrew tap
+    needs: github-release
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    runs-on: ubuntu-latest
+    env:
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - name: Skip when the tap token is not set
+        if: env.TAP_TOKEN == ''
+        run: echo "::notice::HOMEBREW_TAP_TOKEN is not set, so the tap was not updated. See docs/RELEASING.md."
+      - uses: actions/checkout@v4
+        if: env.TAP_TOKEN != ''
+        with:
+          repository: olostan/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      - name: Point the formula at this release
+        if: env.TAP_TOKEN != ''
+        run: |
+          url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
+          sha=$(curl -sSfL "$url" | sha256sum | cut -d' ' -f1)
+          sed -i -E "s|^  url \".*\"|  url \"${url}\"|; s|^  sha256 \".*\"|  sha256 \"${sha}\"|" Formula/audiobook.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "audiobook ${GITHUB_REF_NAME#v}"
+          git push
+
+  # Optional: publish to PyPI with trusted publishing (no stored token).
+  # Enable by setting the repository variable PUBLISH_TO_PYPI=true and registering this workflow as a trusted publisher on PyPI.
+  pypi:
+    name: Publish to PyPI
+    needs: github-release
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') && vars.PUBLISH_TO_PYPI == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

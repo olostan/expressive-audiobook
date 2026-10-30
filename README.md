@@ -1,5 +1,7 @@
 # expressive-audiobook
 
+> **Copyright and legal rights.** This tool is for books and texts you have the legal right to use: your own writing, public-domain works, or material you have a license or the rightsholder's permission to convert. It is not made for, and we do not endorse, copying, converting, sharing or publishing copyrighted books without proper rights and permissions. Do not upload or distribute audio made from a work unless you have the right to. You are responsible for how you use it, and for following the laws and the terms of the services you connect (Gemini, ElevenLabs and others).
+
 Turn a PDF, Markdown or text file you own into a spoken chapter. You pick the book and the delivery. A style profile (or one line of direction) is the only place literary judgment lives: pace, vocal tags, character voices, and how diagrams and formulas should be spoken.
 
 Work happens in a **project**: one folder per book under `projects/<name>/` that holds the extracted chapters, your settings, the narration style, and every generated file. Import once, tune, then generate as often as you like. Every step is resumable.
