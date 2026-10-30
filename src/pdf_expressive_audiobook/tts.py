@@ -328,9 +328,19 @@ def estimate_latency(
 _LONG_PAUSE_RE = re.compile(r"<\s*long pause\s*>", re.IGNORECASE)
 
 
+_EDGE_PAUSES_RE = re.compile(r"^(?:\s*<\s*short pause\s*>)+\s*|\s*(?:<\s*short pause\s*>\s*)+$", re.IGNORECASE)
+
+
 def speakable_text(text: str) -> str:
-    """The model sometimes says the word "long" for <long pause>. Two short pauses sound the same."""
-    return _LONG_PAUSE_RE.sub("<short pause> <short pause>", text)
+    """Make a turn safe to speak.
+
+    The model sometimes says the word "long" for <long pause>; two short pauses sound the same.
+    A pause tag with nothing after it (or before it) is sometimes read aloud as "short pause", and the
+    silence between clips already covers that moment, so tags at the edges of a turn are dropped.
+    """
+    text = _LONG_PAUSE_RE.sub("<short pause> <short pause>", text)
+    trimmed = _EDGE_PAUSES_RE.sub("", text).strip()
+    return trimmed or text
 
 
 def _resolve(turn: dict, profile: StyleProfile, config: TtsConfig) -> ResolvedTurn:

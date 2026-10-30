@@ -176,6 +176,16 @@ def test_long_pause_is_rewritten_and_no_longer_allowed():
     assert speakable_text("Wait. <long pause> Go.") == "Wait. <short pause> <short pause> Go."
 
 
+def test_pause_tags_at_the_edges_of_a_turn_are_dropped():
+    from pdf_expressive_audiobook.tts import speakable_text
+
+    assert speakable_text("They danced. <short pause> <short pause>") == "They danced."
+    assert speakable_text("<short pause> Once upon a time. <short pause> Then, <short pause> rain.") == (
+        "Once upon a time. <short pause> Then, <short pause> rain."
+    )
+    assert speakable_text("<short pause>") == "<short pause>"  # nothing else to say: left alone
+
+
 def _chunk(text, speakers=("Achilles",)):
     from pdf_expressive_audiobook.models import Chunk
 

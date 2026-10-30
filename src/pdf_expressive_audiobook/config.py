@@ -188,9 +188,9 @@ class SoundConfig:
     ambience_seconds: float = 12.0
     director_model: str = ""  # empty: prep.model
     require_approval: bool = False  # True: only approved library items are mixed
-    music_db_floor: float = -34.0  # music level 0+ ... 1 spans floor..ceiling, relative to speech
-    music_db_ceiling: float = -17.0
-    duck_db: float = -7.0
+    music_db_floor: float = -16.0  # music level 0+ ... 1 spans floor..ceiling, relative to speech
+    music_db_ceiling: float = 0.0
+    duck_db: float = -8.0
     duck_attack_ms: float = 400.0
     duck_release_ms: float = 1200.0
     preroll_s: float = 3.0
