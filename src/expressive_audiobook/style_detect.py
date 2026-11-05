@@ -17,7 +17,7 @@ VOICE_TRAITS = {
     "Leda": "youthful", "Orus": "firm", "Aoede": "breezy", "Callirrhoe": "easy-going",
     "Autonoe": "bright", "Enceladus": "breathy", "Iapetus": "clear", "Umbriel": "easy-going",
     "Algieba": "smooth", "Despina": "smooth", "Erinome": "clear", "Algenib": "gravelly",
-    "Rasalgethi": "informative", "Laomedeon": "upbeat", "Achernar": "soft", "Alnilam": "firm",
+    "Rasalgethi": "informative", "Laomedeia": "upbeat", "Achernar": "soft", "Alnilam": "firm",
     "Schedar": "even", "Gacrux": "mature", "Pulcherrima": "forward", "Achird": "friendly",
     "Zubenelgenubi": "casual", "Vindemiatrix": "gentle", "Sadachbia": "lively",
     "Sadaltager": "knowledgeable", "Sulafat": "warm", "Zephyr": "bright",

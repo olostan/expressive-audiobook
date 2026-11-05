@@ -48,6 +48,25 @@ _NON_VOCAL = (
 )
 
 
+def _http_status(exc: Exception) -> int | None:
+    """Extract an HTTP status code from an exception.
+
+    Reads the ``.code`` attribute (SDK errors), the ``.status`` attribute
+    (RetryableHttpError), or parses the "Gemini API error <status>" message
+    pattern (plain RuntimeError from the REST path).
+    """
+    code = getattr(exc, "code", None)
+    if isinstance(code, int):
+        return code
+    status = getattr(exc, "status", None)
+    if isinstance(status, int):
+        return status
+    match = re.search(r"Gemini API error (\d+):", str(exc))
+    if match:
+        return int(match.group(1))
+    return None
+
+
 class PrepValidationError(ValueError):
     def __init__(self, errors: list[str]):
         self.errors = errors
@@ -168,7 +187,7 @@ def prepare_chunk_output(
         except Exception as exc:
             # The API rejected the retry-with-feedback form of the request. Ask again with the
             # original request instead of losing the chunk.
-            code = getattr(exc, "code", None)
+            code = _http_status(exc)
             if attempt > 0 and use_feedback and isinstance(code, int) and 400 <= code < 500 and code != 429:
                 use_feedback = False
                 errors = [f"the retry request was rejected by the API ({code}); asking again without feedback"]
